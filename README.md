@@ -1,5 +1,6 @@
 # Matrix_ATLAS
 This is a repo to test the approach used by ATLAS to extract the correlation matrix among various 1D differential XS. The approach basically relies on summing two covariance matrices:
+
 $$
 C = C_{\rm stat} + C_{\rm syst}
 $$
@@ -11,9 +12,11 @@ git clone https://gitlab.cern.ch/cms-analysis/hig/hig-23-014/datacards.git
 
 ## Statistical covariance matrix $C_{\rm stat}$
 This is computed starting from counting the events in sidebands in bootstrap replica $C_{\rm stat}^{\rm sb}$. The statistical covariance matrix is obtained through the formula:
+
 $$
 C_{\rm stat} = R^{-1}~C_{\rm stat}^{\rm sb}~(R^{-1})^T
 $$
+
 where $R$ is the reponse matrix.
 
 The steps to extract this matrix are encoded in the following scripts:
