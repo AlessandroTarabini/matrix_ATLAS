@@ -10,6 +10,8 @@ The datacards used for the HIG-23-014 paper are needed, they can be downloaded f
 git clone https://gitlab.cern.ch/cms-analysis/hig/hig-23-014/datacards.git
 ```
 
+The folder `fidXS` contains the XS in each bin, it is needed to extract the fiducial acceptance. It is copied from https://github.com/JaLuka98/Hgg-PartialRun3-3A-ETH-Analysis/tree/main/spectrum_plotter/fidXS [TBC they may not be the final numbers used in the results]
+
 ## Statistical covariance matrix $C_{\rm stat}$
 This is computed starting from counting the events in sidebands in bootstrap replica $C_{\rm stat}^{\rm sb}$. The statistical covariance matrix is obtained through the formula:
 
@@ -21,8 +23,9 @@ where $R$ is the reponse matrix.
 
 The steps to extract this matrix are encoded in the following scripts:
 * `bootstrap.py`: this script produces bootstrap replicas of the dataset and count events in the sidebands
+* `fiducial_acceptance.py`: this script extracts the fiducial acceptance from the computed fidXS for HIG-23-014
 * `extract_response_matrix.py`: this script extracts the $(\epsilon\times A)$ matrix from the workspaces
-  * TODO: I am extracting now $(\epsilon\times A)$, I should only look at $\epsilon$. My plan is to take the fiducial acceptances $A$ and perform the division $(\epsilon\times A)/A$
+  * I am extracting $(\epsilon\times A)$, but we only need $\epsilon$. The previous script computed the fiducial acceptances $A$ and here we perform the division $(\epsilon\times A)/A$
 * `correlation_matrix.ipynb`: this notebook computes $C_{\rm stat}^{sb}$ and $C_{\rm stat}$
 
 
@@ -30,6 +33,10 @@ List of commands:
 
 ```
 python3 bootstrap.py --n-replicas 1000 --output bootstrap/bootstrap_sideband_counts.txt
+```
+
+```
+python3 fiducial_acceptance.py 
 ```
 
 ```
