@@ -1,0 +1,429 @@
+#!/usr/bin/env python3
+"""
+Draft script to extract response matrices from HGG signal workspaces.
+
+Workflow:
+1) For each reco-bin ROOT file (selected category), open `wsig_13TeV`.
+2) Read `RooSpline1D` functions named like:
+      fea_ggh_PTH_0p0_15p0_in_2022postEE_RECO_PTH_0p0_15p0_cat0_13TeV
+3) Evaluate each spline at MH = 125.38.
+4) Build per-era response matrices weighted over production mode (xsec weights).
+5) Build final matrix weighted over eras (luminosity weights).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+from collections import defaultdict
+from pathlib import Path
+from typing import Dict, List, Tuple
+
+import matplotlib.pyplot as plt
+import numpy as np
+import ROOT
+
+try:
+    import mplhep as hep
+except ImportError:
+    hep = None
+
+try:
+    import seaborn as sns
+except ImportError:
+    sns = None
+
+
+# Defaults can be overridden by CLI if needed.
+DEFAULT_XSECS = {
+    "ggh": 48.58,
+    "vbf": 3.78,
+    "vh": 2.25,  # WH + ZH combined
+    "tth": 0.507,
+}
+
+DEFAULT_LUMIS = {
+    "2022preEE": 7.98,
+    "2022postEE": 26.67,
+}
+
+SUPPORTED_MODES = ("ggh", "vbf", "vh", "tth")
+SUPPORTED_ERAS = ("2022preEE", "2022postEE")
+
+FILE_RE = re.compile(r"^CMS-HGG_sigfit_packaged_(?P<reco>.+)_cat(?P<cat>\d+)\.root$")
+SPLINE_RE = re.compile(
+    r"^fea_(?P<prod>ggh|vbf|vh|tth)_(?P<gen>.+)_in_(?P<era>2022preEE|2022postEE)_(?P<reco>RECO_.+)_cat(?P<cat>\d+)_13TeV$"
+)
+
+
+def parse_kv_floats(values: List[str], expected_keys: Tuple[str, ...], kind: str) -> Dict[str, float]:
+    out = {}
+    for item in values:
+        if "=" not in item:
+            raise ValueError(f"Invalid {kind} override '{item}'. Use KEY=VALUE.")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if key not in expected_keys:
+            raise ValueError(f"Unknown {kind} key '{key}'. Expected one of: {expected_keys}")
+        out[key] = float(value)
+    return out
+
+
+def parse_label_order(order_arg: str) -> List[str]:
+    """
+    Parse bin order from either:
+      - comma-separated string: "binA,binB,binC"
+      - text file path: one label per line (blank/comment lines ignored)
+    """
+    path = Path(order_arg)
+    if path.exists() and path.is_file():
+        labels = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            labels.append(s)
+        return labels
+    return [x.strip() for x in order_arg.split(",") if x.strip()]
+
+
+def apply_user_order(found_labels: List[str], user_order: List[str], axis_name: str) -> List[str]:
+    """
+    Keep user-provided labels first, then append remaining labels.
+    """
+    if not user_order:
+        return found_labels
+
+    found_set = set(found_labels)
+    unknown = [lab for lab in user_order if lab not in found_set]
+    if unknown:
+        raise ValueError(
+            f"Unknown {axis_name} labels in requested order: {unknown}. "
+            f"Available labels are: {found_labels}"
+        )
+
+    ordered = []
+    seen = set()
+    for lab in user_order:
+        if lab not in seen:
+            ordered.append(lab)
+            seen.add(lab)
+    for lab in found_labels:
+        if lab not in seen:
+            ordered.append(lab)
+    return ordered
+
+
+def normalize_bin_label(label: str) -> str:
+    """Strip optional leading RECO_ for cleaner matrix labels."""
+    if label.startswith("RECO_"):
+        return label[len("RECO_") :]
+    return label
+
+
+def list_reco_files(signal_dir: Path, category: int) -> List[Path]:
+    files = []
+    for path in sorted(signal_dir.glob("CMS-HGG_sigfit_packaged_*_cat*.root")):
+        m = FILE_RE.match(path.name)
+        if not m:
+            continue
+        if int(m.group("cat")) != category:
+            continue
+        files.append(path)
+    return files
+
+
+def open_workspace(root_path: Path, ws_name: str):
+    tf = ROOT.TFile.Open(str(root_path))
+    if not tf or tf.IsZombie():
+        raise RuntimeError(f"Cannot open ROOT file: {root_path}")
+    ws = tf.Get(ws_name)
+    if ws is None:
+        tf.Close()
+        raise RuntimeError(f"Workspace '{ws_name}' not found in {root_path}")
+    return tf, ws
+
+
+def extract_values_from_workspace(ws, mh_value: float, category: int):
+    mh = ws.var("MH")
+    if mh is None:
+        raise RuntimeError("Variable 'MH' not found in workspace.")
+    mh.setVal(mh_value)
+
+    out = []
+    funcs = ws.allFunctions()
+    it = funcs.createIterator()
+    obj = it.Next()
+    while obj:
+        name = obj.GetName()
+        m = SPLINE_RE.match(name)
+        if m and int(m.group("cat")) == category:
+            prod = m.group("prod")
+            gen_bin = m.group("gen")
+            era = m.group("era")
+            reco_bin = normalize_bin_label(m.group("reco"))
+            val = float(obj.getVal())
+            out.append((era, prod, gen_bin, reco_bin, val, name))
+        obj = it.Next()
+    return out
+
+
+def build_matrices(
+    values,
+    xsecs: Dict[str, float],
+    lumis: Dict[str, float],
+    user_order: List[str] | None = None,
+):
+    # values[era][prod][gen][reco] = val
+    by_era_prod = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+    reco_bins = set()
+    gen_bins = set()
+
+    for era, prod, gen_bin, reco_bin, val, _ in values:
+        by_era_prod[era][prod][gen_bin][reco_bin] = val
+        reco_bins.add(reco_bin)
+        gen_bins.add(gen_bin)
+
+    reco_bins = sorted(reco_bins)
+    gen_bins = sorted(gen_bins)
+    # Example: Njets2p5_0p0_1p0 -> NJ_0p0_1p0
+    user_order_gen = [lab.replace("Njets2p5_", "NJ_") for lab in user_order]
+    user_order_gen = [lab.replace("first_jet_pt_", "PTJ0_") for lab in user_order_gen]
+    gen_bins = apply_user_order(gen_bins, user_order_gen or [], "gen")
+    reco_bins = apply_user_order(reco_bins, user_order or [], "reco")
+
+    per_era = {}
+    for era in SUPPORTED_ERAS:
+        matrix = defaultdict(dict)
+        for gen_bin in gen_bins:
+            for reco_bin in reco_bins:
+                num = 0.0
+                den = 0.0
+                for prod in SUPPORTED_MODES:
+                    if gen_bin in by_era_prod[era][prod] and reco_bin in by_era_prod[era][prod][gen_bin]:
+                        w = xsecs[prod]
+                        num += w * by_era_prod[era][prod][gen_bin][reco_bin]
+                        den += w
+                matrix[gen_bin][reco_bin] = num / den if den > 0.0 else None
+        per_era[era] = matrix
+
+    combined = defaultdict(dict)
+    for gen_bin in gen_bins:
+        for reco_bin in reco_bins:
+            num = 0.0
+            den = 0.0
+            for era in SUPPORTED_ERAS:
+                val = per_era[era][gen_bin][reco_bin]
+                if val is None:
+                    continue
+                w = lumis[era]
+                num += w * val
+                den += w
+            combined[gen_bin][reco_bin] = num / den if den > 0.0 else None
+
+    return gen_bins, reco_bins, per_era, combined
+
+
+def write_txt(path: Path, gen_bins: List[str], reco_bins: List[str], matrix) -> None:
+    with path.open("w", encoding="utf-8") as f:
+        f.write("gen_bin " + " ".join(reco_bins) + "\n")
+        for gen_bin in gen_bins:
+            row = [gen_bin]
+            for reco_bin in reco_bins:
+                v = matrix[gen_bin][reco_bin]
+                row.append("" if v is None else f"{v:.10g}")
+            f.write(" ".join(row) + "\n")
+
+
+def matrix_to_array(gen_bins: List[str], reco_bins: List[str], matrix) -> np.ndarray:
+    data: List[List[float]] = []
+    for gen_bin in gen_bins:
+        row = []
+        for reco_bin in reco_bins:
+            v = matrix[gen_bin][reco_bin]
+            row.append(np.nan if v is None else float(v))
+        data.append(row)
+    return np.asarray(data, dtype=float)
+
+
+def plot_matrix(
+    arr: np.ndarray,
+    gen_bins: List[str],
+    reco_bins: List[str],
+    title: str,
+    output_path: Path,
+    show: bool = False,
+) -> None:
+    """Plot with the same style conventions used in correlation_matrix.ipynb."""
+    if hep is not None:
+        hep.style.use("CMS")
+    fig, ax = plt.subplots(figsize=(12, 10), constrained_layout=True)
+
+    if sns is not None:
+        palette = sns.diverging_palette(240, 10, n=20, as_cmap=True)
+        sns.heatmap(
+            arr,
+            ax=ax,
+            cmap=palette,
+            annot=True,
+            fmt=".3f",
+            square=True,
+            xticklabels=reco_bins,
+            yticklabels=gen_bins,
+            annot_kws={"size": 10, "weight": "bold"},
+            cbar_kws={"label": "Response"},
+        )
+    else:
+        im = ax.imshow(arr, cmap="coolwarm", aspect="equal")
+        ax.set_xticks(np.arange(len(reco_bins)))
+        ax.set_yticks(np.arange(len(gen_bins)))
+        ax.set_xticklabels(reco_bins, rotation=90)
+        ax.set_yticklabels(gen_bins)
+        for i in range(arr.shape[0]):
+            for j in range(arr.shape[1]):
+                val = arr[i, j]
+                text = "" if np.isnan(val) else f"{val:.3f}"
+                ax.text(j, i, text, ha="center", va="center", fontsize=10, fontweight="bold")
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label("Response")
+
+    ax.set_title(title)
+    ax.set_xlabel("Reco bins")
+    ax.set_ylabel("Gen bins")
+    fig.savefig(output_path, dpi=200)
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Extract response matrix from HGG signal workspaces.")
+    parser.add_argument(
+        "--signal-dir",
+        default="datacards/differentials/Models_PTH/signal",
+        help="Directory containing CMS-HGG_sigfit_packaged_*.root files.",
+    )
+    parser.add_argument("--workspace", default="wsig_13TeV", help="Workspace name inside ROOT files.")
+    parser.add_argument("--category", type=int, default=0, help="Reco category (e.g. 0 for cat0).")
+    parser.add_argument("--mh", type=float, default=125.38, help="MH value to evaluate RooSpline1D at.")
+    parser.add_argument(
+        "--xsec",
+        action="append",
+        default=[],
+        help="Override production xsec, format prod=value (repeatable).",
+    )
+    parser.add_argument(
+        "--lumi",
+        action="append",
+        default=[],
+        help="Override era lumi, format era=value (repeatable).",
+    )
+    parser.add_argument(
+        "--out-prefix",
+        default="response_matrix",
+        help=(
+            "Output prefix for JSON/TXT/PDF/PNG files. "
+            "Can be either a plain prefix (e.g. 'response_matrix') or "
+            "'folder/prefix' (folder is created automatically)."
+        ),
+    )
+    parser.add_argument(
+        "--order",
+        default=None,
+        help=(
+            "Order of labels for both gen and reco axes. Either comma-separated labels "
+            "or a text file path (one label per line). Unspecified bins are appended."
+        ),
+    )
+    parser.add_argument("--no-plot", action="store_true", help="Disable PNG heatmap outputs.")
+    parser.add_argument("--show-plots", action="store_true", help="Display plots interactively.")
+    args = parser.parse_args()
+
+    signal_dir = Path(args.signal_dir)
+    if not signal_dir.exists():
+        raise FileNotFoundError(f"Signal directory not found: {signal_dir}")
+
+    xsecs = dict(DEFAULT_XSECS)
+    lumis = dict(DEFAULT_LUMIS)
+    xsecs.update(parse_kv_floats(args.xsec, tuple(SUPPORTED_MODES), "xsec"))
+    lumis.update(parse_kv_floats(args.lumi, tuple(SUPPORTED_ERAS), "lumi"))
+
+    reco_files = list_reco_files(signal_dir, args.category)
+    if not reco_files:
+        raise RuntimeError(f"No files found for category cat{args.category} in {signal_dir}")
+
+    extracted = []
+    for root_file in reco_files:
+        tf, ws = open_workspace(root_file, args.workspace)
+        try:
+            extracted.extend(extract_values_from_workspace(ws, args.mh, args.category))
+        finally:
+            tf.Close()
+
+    if not extracted:
+        raise RuntimeError("No matching 'fea_*' spline functions were found. Check naming conventions.")
+
+    user_order = parse_label_order(args.order) if args.order else None
+
+    gen_bins, reco_bins, per_era, combined = build_matrices(
+        extracted,
+        xsecs,
+        lumis,
+        user_order=user_order,
+    )
+
+    out_prefix = Path(args.out_prefix)
+    out_prefix.parent.mkdir(parents=True, exist_ok=True)
+    out_json = out_prefix.with_suffix(".json")
+    out_txt = out_prefix.with_suffix(".txt")
+    out_txt_pre = out_prefix.with_name(out_prefix.name + "_2022preEE").with_suffix(".txt")
+    out_txt_post = out_prefix.with_name(out_prefix.name + "_2022postEE").with_suffix(".txt")
+    out_png = out_prefix.with_suffix(".pdf")
+    out_png_pre = out_prefix.with_name(out_prefix.name + "_2022preEE").with_suffix(".png")
+    out_png_post = out_prefix.with_name(out_prefix.name + "_2022postEE").with_suffix(".png")
+
+    payload = {
+        "inputs": {
+            "signal_dir": str(signal_dir),
+            "workspace": args.workspace,
+            "category": args.category,
+            "mh": args.mh,
+            "xsecs": xsecs,
+            "lumis": lumis,
+            "n_reco_files": len(reco_files),
+            "n_splines": len(extracted),
+        },
+        "axes": {"gen_bins": gen_bins, "reco_bins": reco_bins},
+        "matrix_2022preEE": per_era["2022preEE"],
+        "matrix_2022postEE": per_era["2022postEE"],
+        "matrix_lumi_weighted": combined,
+    }
+
+    with out_json.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+
+    write_txt(out_txt_pre, gen_bins, reco_bins, per_era["2022preEE"])
+    write_txt(out_txt_post, gen_bins, reco_bins, per_era["2022postEE"])
+    write_txt(out_txt, gen_bins, reco_bins, combined)
+
+    if not args.no_plot:
+        arr_pre = matrix_to_array(gen_bins, reco_bins, per_era["2022preEE"])
+        arr_post = matrix_to_array(gen_bins, reco_bins, per_era["2022postEE"])
+        arr_comb = matrix_to_array(gen_bins, reco_bins, combined)
+        plot_matrix(arr_pre, gen_bins, reco_bins, "Response Matrix (2022preEE)", out_png_pre, show=args.show_plots)
+        plot_matrix(arr_post, gen_bins, reco_bins, "Response Matrix (2022postEE)", out_png_post, show=args.show_plots)
+        plot_matrix(arr_comb, gen_bins, reco_bins, "Response Matrix (lumi weighted)", out_png, show=args.show_plots)
+
+    print(f"Wrote {out_json}")
+    print(f"Wrote {out_txt_pre}")
+    print(f"Wrote {out_txt_post}")
+    print(f"Wrote {out_txt}")
+    if not args.no_plot:
+        print(f"Wrote {out_png_pre}")
+        print(f"Wrote {out_png_post}")
+        print(f"Wrote {out_png}")
+
+
+if __name__ == "__main__":
+    main()
