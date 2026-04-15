@@ -27,6 +27,8 @@ PTH_COLUMN = "pt"
 NJ_COLUMN = "NJ"
 PTJ0_COLUMN = "PTJ0"
 
+CAT = [0.0105, 0.0130, 0.0315]
+CAT_VAR = "sigma_m_over_m_smeared_decorr"
 
 def edge_bin_mask(x: np.ndarray, edges: np.ndarray, b: int) -> np.ndarray:
     """Bin b: [edges[b], edges[b+1]) except last bin [edges[-2], edges[-1]] closed on the right."""
@@ -187,9 +189,15 @@ def main() -> None:
     total_events = 0
     total_sideband_events = 0
     replica_counts = np.zeros(args.n_replicas, dtype=np.int64)
-    replica_counts_pth = np.zeros((n_bins_pth, args.n_replicas), dtype=np.int64)
-    replica_counts_nj = np.zeros((n_bins_nj, args.n_replicas), dtype=np.int64)
-    replica_counts_ptj0 = np.zeros((n_bins_ptj0, args.n_replicas), dtype=np.int64)
+    replica_counts_pth_cat0 = np.zeros((n_bins_pth, args.n_replicas), dtype=np.int64)
+    replica_counts_pth_cat1 = np.zeros((n_bins_pth, args.n_replicas), dtype=np.int64)
+    replica_counts_pth_cat2 = np.zeros((n_bins_pth, args.n_replicas), dtype=np.int64)
+    replica_counts_nj_cat0 = np.zeros((n_bins_nj, args.n_replicas), dtype=np.int64)
+    replica_counts_nj_cat1 = np.zeros((n_bins_nj, args.n_replicas), dtype=np.int64)
+    replica_counts_nj_cat2 = np.zeros((n_bins_nj, args.n_replicas), dtype=np.int64)
+    replica_counts_ptj0_cat0 = np.zeros((n_bins_ptj0, args.n_replicas), dtype=np.int64)
+    replica_counts_ptj0_cat1 = np.zeros((n_bins_ptj0, args.n_replicas), dtype=np.int64)
+    replica_counts_ptj0_cat2 = np.zeros((n_bins_ptj0, args.n_replicas), dtype=np.int64)
 
     iterator = parquet_files
     if tqdm is not None:
@@ -221,7 +229,7 @@ def main() -> None:
                     f"Column '{col}' ({label}) not found in file: {path}"
                 )
         total_events += len(df)
-        mask = ((df[args.mass_column] < args.low_cut) | (df[args.mass_column] > args.high_cut)) & (df["lead_mvaID"] > 0.25) & (df["sublead_mvaID"] > 0.25)
+        mask = ((df[args.mass_column] < args.low_cut) | (df[args.mass_column] > args.high_cut)) & (df[args.mass_column] < 180) & (df[args.mass_column] > 100) & (df["lead_mvaID"] > 0.25) & (df["sublead_mvaID"] > 0.25)
         df_sb = df.loc[mask].copy()
 
         if df_sb.empty:
@@ -239,29 +247,38 @@ def main() -> None:
         weight_matrix = poisson1_n_per_seed(seeds, args.n_replicas)
         replica_counts += weight_matrix.sum(axis=0)
 
+        sigma_m_over_m = df_sb[CAT_VAR].to_numpy(dtype=np.float64)
         pt = df_sb[PTH_COLUMN].to_numpy(dtype=np.float64)
         finite_pt = np.isfinite(pt)
         for b in range(n_bins_pth):
+            m_cat0 = finite_pt & edge_bin_mask(pt, edges_pth, b) & (sigma_m_over_m < CAT[0])
+            m_cat1 = finite_pt & edge_bin_mask(pt, edges_pth, b) & (sigma_m_over_m >= CAT[0]) & (sigma_m_over_m < CAT[1])
+            m_cat2 = finite_pt & edge_bin_mask(pt, edges_pth, b) & (sigma_m_over_m >= CAT[1]) & (sigma_m_over_m < CAT[2])
             m = finite_pt & edge_bin_mask(pt, edges_pth, b)
-            if not np.any(m):
-                continue
-            replica_counts_pth[b] += weight_matrix[m].sum(axis=0)
+            replica_counts_pth_cat0[b] += weight_matrix[m_cat0].sum(axis=0)
+            replica_counts_pth_cat1[b] += weight_matrix[m_cat1].sum(axis=0)
+            replica_counts_pth_cat2[b] += weight_matrix[m_cat2].sum(axis=0)
 
         nj = df_sb[NJ_COLUMN].to_numpy(dtype=np.float64)
         finite_nj = np.isfinite(nj)
         for b in range(n_bins_nj):
-            m = finite_nj & edge_bin_mask(nj, edges_nj, b)
-            if not np.any(m):
-                continue
-            replica_counts_nj[b] += weight_matrix[m].sum(axis=0)
+            m_cat0 = finite_nj & edge_bin_mask(nj, edges_nj, b) & (sigma_m_over_m < CAT[0])
+            m_cat1 = finite_nj & edge_bin_mask(nj, edges_nj, b) & (sigma_m_over_m >= CAT[0]) & (sigma_m_over_m < CAT[1])
+            m_cat2 = finite_nj & edge_bin_mask(nj, edges_nj, b) & (sigma_m_over_m >= CAT[1]) & (sigma_m_over_m < CAT[2])
+            replica_counts_nj_cat0[b] += weight_matrix[m_cat0].sum(axis=0)
+            replica_counts_nj_cat1[b] += weight_matrix[m_cat1].sum(axis=0)
+            replica_counts_nj_cat2[b] += weight_matrix[m_cat2].sum(axis=0)
 
         ptj0 = df_sb[PTJ0_COLUMN].to_numpy(dtype=np.float64)
         finite_ptj0 = np.isfinite(ptj0)
         for b in range(n_bins_ptj0):
-            m = finite_ptj0 & edge_bin_mask(ptj0, edges_ptj0, b)
-            if not np.any(m):
-                continue
-            replica_counts_ptj0[b] += weight_matrix[m].sum(axis=0)
+            m_cat0 = finite_ptj0 & edge_bin_mask(ptj0, edges_ptj0, b) & (sigma_m_over_m < CAT[0])
+            m_cat1 = finite_ptj0 & edge_bin_mask(ptj0, edges_ptj0, b) & (sigma_m_over_m >= CAT[0]) & (sigma_m_over_m < CAT[1])
+            m_cat2 = finite_ptj0 & edge_bin_mask(ptj0, edges_ptj0, b) & (sigma_m_over_m >= CAT[1]) & (sigma_m_over_m < CAT[2])
+            replica_counts_ptj0_cat0[b] += weight_matrix[m_cat0].sum(axis=0)
+            replica_counts_ptj0_cat1[b] += weight_matrix[m_cat1].sum(axis=0)
+            replica_counts_ptj0_cat2[b] += weight_matrix[m_cat2].sum(axis=0)
+
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as f:
@@ -272,31 +289,79 @@ def main() -> None:
 
     stem = args.output.stem
     parent = args.output.parent
-    pth_path = parent / f"{stem}_pth.txt"
-    nj_path = parent / f"{stem}_nj.txt"
-    ptj0_path = parent / f"{stem}_ptj0.txt"
+    pth_cat0_path = parent / f"{stem}_pth_cat0.txt"
+    pth_cat1_path = parent / f"{stem}_pth_cat1.txt"
+    pth_cat2_path = parent / f"{stem}_pth_cat2.txt"
+    nj_cat0_path = parent / f"{stem}_nj_cat0.txt"
+    nj_cat1_path = parent / f"{stem}_nj_cat1.txt"
+    nj_cat2_path = parent / f"{stem}_nj_cat2.txt"
+    ptj0_cat0_path = parent / f"{stem}_ptj0_cat0.txt"
+    ptj0_cat1_path = parent / f"{stem}_ptj0_cat1.txt"
+    ptj0_cat2_path = parent / f"{stem}_ptj0_cat2.txt"
     write_binned_counts_txt(
-        pth_path,
+        pth_cat0_path,
         "# PTH bins (column pt); sum of Poisson weights per bin per replica",
         edges_pth,
-        replica_counts_pth,
+        replica_counts_pth_cat0,
     )
     write_binned_counts_txt(
-        nj_path,
+        pth_cat1_path,
+        "# PTH bins (column pt); sum of Poisson weights per bin per replica",
+        edges_pth,
+        replica_counts_pth_cat1,
+    )
+    write_binned_counts_txt(
+        pth_cat2_path,
+        "# PTH bins (column pt); sum of Poisson weights per bin per replica",
+        edges_pth,
+        replica_counts_pth_cat2,
+    )
+    write_binned_counts_txt(
+        nj_cat0_path,
         "# NJ bins (column NJ); sum of Poisson weights per bin per replica",
         edges_nj,
-        replica_counts_nj,
+        replica_counts_nj_cat0,
     )
     write_binned_counts_txt(
-        ptj0_path,
+        nj_cat1_path,
+        "# NJ bins (column NJ); sum of Poisson weights per bin per replica",
+        edges_nj,
+        replica_counts_nj_cat1,
+    )
+    write_binned_counts_txt(
+        nj_cat2_path,
+        "# NJ bins (column NJ); sum of Poisson weights per bin per replica",
+        edges_nj,
+        replica_counts_nj_cat2,
+    )
+    write_binned_counts_txt(
+        ptj0_cat0_path,
         "# PTJ0 bins (column PTJ0); sum of Poisson weights per bin per replica",
         edges_ptj0,
-        replica_counts_ptj0,
+        replica_counts_ptj0_cat0,
+    )
+    write_binned_counts_txt(
+        ptj0_cat1_path,
+        "# PTJ0 bins (column PTJ0); sum of Poisson weights per bin per replica",
+        edges_ptj0,
+        replica_counts_ptj0_cat1,
+    )
+    write_binned_counts_txt(
+        ptj0_cat2_path,
+        "# PTJ0 bins (column PTJ0); sum of Poisson weights per bin per replica",
+        edges_ptj0,
+        replica_counts_ptj0_cat2,
     )
 
-    print(f"PTH-binned output     : {pth_path}")
-    print(f"NJ-binned output      : {nj_path}")
-    print(f"PTJ0-binned output    : {ptj0_path}")
+    print(f"PTH-cat0-binned output : {pth_cat0_path}")
+    print(f"PTH-cat1-binned output : {pth_cat1_path}")
+    print(f"PTH-cat2-binned output : {pth_cat2_path}")
+    print(f"NJ-cat0-binned output : {nj_cat0_path}")
+    print(f"NJ-cat1-binned output : {nj_cat1_path}")
+    print(f"NJ-cat2-binned output : {nj_cat2_path}")
+    print(f"PTJ0-cat0-binned output : {ptj0_cat0_path}")
+    print(f"PTJ0-cat1-binned output : {ptj0_cat1_path}")
+    print(f"PTJ0-cat2-binned output : {ptj0_cat2_path}")
 
 
 if __name__ == "__main__":

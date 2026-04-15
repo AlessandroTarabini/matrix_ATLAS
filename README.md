@@ -43,15 +43,54 @@ python3 fiducial_acceptance.py
 python3 extract_response_matrix.py \
   --signal-dir datacards/differentials/Models_PTH/signal \
   --out-prefix response_matrix/response_matrix_pth \
-  --order "PTH_0p0_15p0,PTH_15p0_30p0,PTH_30p0_45p0,PTH_45p0_80p0,PTH_80p0_120p0,PTH_120p0_200p0,PTH_200p0_350p0,PTH_350p0_10000p0" 
+  --order "PTH_0p0_15p0,PTH_15p0_30p0,PTH_30p0_45p0,PTH_45p0_80p0,PTH_80p0_120p0,PTH_120p0_200p0,PTH_200p0_350p0,PTH_350p0_10000p0" \
+  --category 0
+
+python3 extract_response_matrix.py \
+  --signal-dir datacards/differentials/Models_PTH/signal \
+  --out-prefix response_matrix/response_matrix_pth \
+  --order "PTH_0p0_15p0,PTH_15p0_30p0,PTH_30p0_45p0,PTH_45p0_80p0,PTH_80p0_120p0,PTH_120p0_200p0,PTH_200p0_350p0,PTH_350p0_10000p0" \
+  --category 1
+
+python3 extract_response_matrix.py \
+  --signal-dir datacards/differentials/Models_PTH/signal \
+  --out-prefix response_matrix/response_matrix_pth \
+  --order "PTH_0p0_15p0,PTH_15p0_30p0,PTH_30p0_45p0,PTH_45p0_80p0,PTH_80p0_120p0,PTH_120p0_200p0,PTH_200p0_350p0,PTH_350p0_10000p0" \
+  --category 2
 
 python3 extract_response_matrix.py \
   --signal-dir datacards/differentials/Models_Njets2p5/signal \
   --out-prefix response_matrix/response_matrix_Njets2p5 \
-  --order "Njets2p5_0p0_1p0,Njets2p5_1p0_2p0,Njets2p5_2p0_3p0,Njets2p5_3p0_100p0" 
+  --order "Njets2p5_0p0_1p0,Njets2p5_1p0_2p0,Njets2p5_2p0_3p0,Njets2p5_3p0_100p0" \
+  --category 0
+
+python3 extract_response_matrix.py \
+  --signal-dir datacards/differentials/Models_Njets2p5/signal \
+  --out-prefix response_matrix/response_matrix_Njets2p5 \
+  --order "Njets2p5_0p0_1p0,Njets2p5_1p0_2p0,Njets2p5_2p0_3p0,Njets2p5_3p0_100p0" \
+  --category 1
+
+python3 extract_response_matrix.py \
+  --signal-dir datacards/differentials/Models_Njets2p5/signal \
+  --out-prefix response_matrix/response_matrix_Njets2p5 \
+  --order "Njets2p5_0p0_1p0,Njets2p5_1p0_2p0,Njets2p5_2p0_3p0,Njets2p5_3p0_100p0" \
+  --category 2
 
 python3 extract_response_matrix.py \
   --signal-dir datacards/differentials/Models_ptJ0/signal \
   --out-prefix response_matrix/response_matrix_ptJ0 \
-  --order "first_jet_pt_0p0_30p0,first_jet_pt_30p0_75p0,first_jet_pt_75p0_120p0,first_jet_pt_120p0_200p0,first_jet_pt_200p0_10000p0" 
+  --order "first_jet_pt_0p0_30p0,first_jet_pt_30p0_75p0,first_jet_pt_75p0_120p0,first_jet_pt_120p0_200p0,first_jet_pt_200p0_10000p0" \
+  --category 0
+
+python3 extract_response_matrix.py \
+  --signal-dir datacards/differentials/Models_ptJ0/signal \
+  --out-prefix response_matrix/response_matrix_ptJ0 \
+  --order "first_jet_pt_0p0_30p0,first_jet_pt_30p0_75p0,first_jet_pt_75p0_120p0,first_jet_pt_120p0_200p0,first_jet_pt_200p0_10000p0" \
+  --category 1
+
+python3 extract_response_matrix.py \
+  --signal-dir datacards/differentials/Models_ptJ0/signal \
+  --out-prefix response_matrix/response_matrix_ptJ0 \
+  --order "first_jet_pt_0p0_30p0,first_jet_pt_30p0_75p0,first_jet_pt_75p0_120p0,first_jet_pt_120p0_200p0,first_jet_pt_200p0_10000p0" \
+  --category 2
 ```

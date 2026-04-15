@@ -391,7 +391,8 @@ def main():
         help=(
             "Output prefix for JSON/TXT/PDF/PNG files. "
             "Can be either a plain prefix (e.g. 'response_matrix') or "
-            "'folder/prefix' (folder is created automatically)."
+            "'folder/prefix' (folder is created automatically). "
+            "_cat<N> is appended from --category."
         ),
     )
     parser.add_argument(
@@ -442,6 +443,7 @@ def main():
     )
 
     out_prefix = Path(args.out_prefix)
+    out_prefix = out_prefix.parent / f"{out_prefix.name}_cat{args.category}"
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     out_json = out_prefix.with_suffix(".json")
     out_txt = out_prefix.with_suffix(".txt")
