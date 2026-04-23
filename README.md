@@ -27,6 +27,7 @@ The steps to extract this matrix are encoded in the following scripts:
 * `extract_response_matrix.py`: this script extracts the $(\epsilon\times A)$ matrix from the workspaces
   * I am extracting $(\epsilon\times A)$, but we only need $\epsilon$. The previous script computed the fiducial acceptances $A$ and here we perform the division $(\epsilon\times A)/A$
 * `correlation_matrix.ipynb`: this notebook computes $C_{\rm stat}^{sb}$ and $C_{\rm stat}$
+* (optional) ```extract_hessian.py```: this script extract the hessian matrix from the combined fit (= the combined fit is obtained by combining the various variables as if they were independent and then computing the covariance matrix from the Hessian)
 
 
 List of commands:

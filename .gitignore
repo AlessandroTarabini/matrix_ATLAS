@@ -2,3 +2,6 @@ bootstrap/
 response_matrix/
 datacards/
 fiducial_acceptance.txt
+*.pdf
+*.yaml
+*.txt
