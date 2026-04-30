@@ -15,8 +15,7 @@ except ImportError:
 
 
 DEFAULT_INPUT_DIR = (
-    "/eos/cms/store/group/phys_higgs/cmshgg/earlyRun3Hgg/"
-    "analysis_Ntuples/forPaper_24_11_11"
+    "/pnfs/psi.ch/cms/trivcat/store/user/niharrin/ntuples/midRun3/samples/2025_09_16/earlyRun3/data"
 )
 
 BINS_PTH = [0, 15, 30, 45, 80, 120, 200, 350, 10000]
