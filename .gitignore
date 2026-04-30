@@ -1,7 +1,13 @@
 bootstrap/
 response_matrix/
 datacards/
+signal_models/
+impacts/
+fidXS/
+fidXS/*
 fiducial_acceptance.txt
 *.pdf
 *.yaml
 *.txt
+__pycache__/
+*/__pycache__/
