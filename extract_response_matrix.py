@@ -257,7 +257,8 @@ def build_matrices(
         acc = acceptance[section][idx]
         if acc <= 0.0:
             raise ValueError(f"Non-positive acceptance for [{section}] bin {idx}: {acc}")
-        corrected_by_era_prod[era][prod][gen_bin][reco_bin] = val / acc
+        # corrected_by_era_prod[era][prod][gen_bin][reco_bin] = val / acc
+        corrected_by_era_prod[era][prod][gen_bin][reco_bin] = val
 
     per_era = {}
     for era in SUPPORTED_ERAS:
