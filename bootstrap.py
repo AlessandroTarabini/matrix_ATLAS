@@ -13,29 +13,50 @@ try:
 except ImportError:
     tqdm = None
 
+YEARS = ["2022", "2023", "2024"]
 
-DEFAULT_INPUT_DIR = (
-    "/pnfs/psi.ch/cms/trivcat/store/user/niharrin/ntuples/midRun3/samples/2025_09_16/earlyRun3/data"
-)
+INPUT_DIRS = {
+    "2022": "/pnfs/psi.ch/cms/trivcat/store/user/niharrin/ntuples/midRun3/samples/2026_04_27_with_Zmmg_SaS/data/2022",
+    "2023": "/pnfs/psi.ch/cms/trivcat/store/user/niharrin/ntuples/midRun3/samples/2026_04_27_with_Zmmg_SaS/data/2023",
+    "2024": "/pnfs/psi.ch/cms/trivcat/store/user/niharrin/ntuples/midRun3/samples/2026_04_27_with_Zmmg_SaS/data/2024"
+}
 
-BINS_PTH = [0, 15, 30, 45, 80, 120, 200, 350, 10000]
-BINS_NJ = [0, 1, 2, 3, 1000]
-BINS_PTJ0 = [-1000, 30, 75, 120, 200, 10000]
+BINS_PTH = [0, 10, 15, 20, 25, 30, 35, 45, 60, 80, 100, 120, 140, 170, 200, 250, 350, 450, 10000]
+BINS_NJ = [0, 1, 2, 3, 4, 1000]
+BINS_RAPIDITY = [0.0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.90, 1.2, 1.6, 2.0, 2.5]
+BINS_PTJ0 = [-10000, 30, 40, 55, 75, 95, 120, 150, 200, 10000]
 
 PTH_COLUMN = "pt"
 NJ_COLUMN = "NJ"
+RAPIDITY_COLUMN = "rapidity"
 PTJ0_COLUMN = "PTJ0"
 
-CAT = [0.0105, 0.0130, 0.0315]
+CAT = {
+    "2022": [0.0105, 0.013, 0.0315],
+    "2023": [0.011, 0.0145, 0.0315],
+    "2024": [0.0115, 0.0175, 0.0315]
+}
 CAT_VAR = "sigma_m_over_m_smeared_decorr"
 
-def edge_bin_mask(x: np.ndarray, edges: np.ndarray, b: int) -> np.ndarray:
+MVA = {
+    "2022": 0.25,
+    "2023": 0.19,
+    "2024": 0.24
+}
+
+def edge_bin_mask(x: np.ndarray, edges: np.ndarray, b: int, column: str) -> np.ndarray:
     """Bin b: [edges[b], edges[b+1]) except last bin [edges[-2], edges[-1]] closed on the right."""
     lo = float(edges[b])
     hi = float(edges[b + 1])
     if b == len(edges) - 2:
-        return (x >= lo) & (x <= hi)
-    return (x >= lo) & (x < hi)
+        if column == "rapidity":
+            return (np.abs(x) >= lo) & (np.abs(x) <= hi)
+        else:
+            return (x >= lo) & (x <= hi)
+    if column == "rapidity":
+        return (np.abs(x) >= lo) & (np.abs(x) < hi)
+    else:
+        return (x >= lo) & (x < hi)
 
 
 def write_binned_counts_txt(
@@ -68,12 +89,6 @@ def parse_args() -> argparse.Namespace:
             "N Poisson(1) bootstrap weights per event; each event uses one "
             "seed derived from run/lumi/event."
         )
-    )
-    parser.add_argument(
-        "--input-dir",
-        type=Path,
-        default=Path(DEFAULT_INPUT_DIR),
-        help="Base directory to scan recursively for parquet files.",
     )
     parser.add_argument(
         "--mass-column",
@@ -172,195 +187,248 @@ def main() -> None:
     args = parse_args()
     if args.n_replicas < 1:
         raise ValueError("--n-replicas must be >= 1")
-    parquet_files = collect_parquet_files(args.input_dir)
 
-    if not parquet_files:
-        raise FileNotFoundError(f"No parquet files found under {args.input_dir}")
+    for i, year in enumerate(YEARS):
+        
+        print(f"Now processing year {year}...")
+        
+        current_input_dir = Path(INPUT_DIRS[year])
 
-    id_cols = (args.run_column, args.lumi_column, args.event_column)
-    edges_pth = np.asarray(BINS_PTH, dtype=np.float64)
-    n_bins_pth = len(edges_pth) - 1
-    edges_nj = np.asarray(BINS_NJ, dtype=np.float64)
-    n_bins_nj = len(edges_nj) - 1
-    edges_ptj0 = np.asarray(BINS_PTJ0, dtype=np.float64)
-    n_bins_ptj0 = len(edges_ptj0) - 1
+        parquet_files = collect_parquet_files(current_input_dir)
 
-    total_events = 0
-    total_sideband_events = 0
-    replica_counts = np.zeros(args.n_replicas, dtype=np.int64)
-    replica_counts_pth_cat0 = np.zeros((n_bins_pth, args.n_replicas), dtype=np.int64)
-    replica_counts_pth_cat1 = np.zeros((n_bins_pth, args.n_replicas), dtype=np.int64)
-    replica_counts_pth_cat2 = np.zeros((n_bins_pth, args.n_replicas), dtype=np.int64)
-    replica_counts_nj_cat0 = np.zeros((n_bins_nj, args.n_replicas), dtype=np.int64)
-    replica_counts_nj_cat1 = np.zeros((n_bins_nj, args.n_replicas), dtype=np.int64)
-    replica_counts_nj_cat2 = np.zeros((n_bins_nj, args.n_replicas), dtype=np.int64)
-    replica_counts_ptj0_cat0 = np.zeros((n_bins_ptj0, args.n_replicas), dtype=np.int64)
-    replica_counts_ptj0_cat1 = np.zeros((n_bins_ptj0, args.n_replicas), dtype=np.int64)
-    replica_counts_ptj0_cat2 = np.zeros((n_bins_ptj0, args.n_replicas), dtype=np.int64)
+        if not parquet_files:
+            raise FileNotFoundError(f"No parquet files found under {current_input_dir}")
 
-    iterator = parquet_files
-    if tqdm is not None:
-        iterator = tqdm(parquet_files, desc="Processing parquet files", unit="file")
-    else:
-        print(f"Processing {len(parquet_files)} parquet files...")
+        id_cols = (args.run_column, args.lumi_column, args.event_column)
+        edges_pth = np.asarray(BINS_PTH, dtype=np.float64)
+        n_bins_pth = len(edges_pth) - 1
+        edges_nj = np.asarray(BINS_NJ, dtype=np.float64)
+        n_bins_nj = len(edges_nj) - 1
+        edges_rapidity = np.asarray(BINS_RAPIDITY, dtype=np.float64)
+        n_bins_rapidity = len(edges_rapidity) - 1
+        edges_ptj0 = np.asarray(BINS_PTJ0, dtype=np.float64)
+        n_bins_ptj0 = len(edges_ptj0) - 1
 
-    for i, path in enumerate(iterator, start=1):
-        if tqdm is None:
-            print(f"[{i}/{len(parquet_files)}] {path.name}")
-        df = pd.read_parquet(path)
-        #Check that all columns are there in the parquet file
-        if args.mass_column not in df.columns:
-            raise KeyError(
-                f"Mass column '{args.mass_column}' not found in file: {path}"
-            )
-        for c in id_cols:
-            if c not in df.columns:
+        total_events = 0
+        total_sideband_events = 0
+        replica_counts = np.zeros(args.n_replicas, dtype=np.int32)
+        replica_counts_pth_cat0 = np.zeros((n_bins_pth, args.n_replicas), dtype=np.int32)
+        replica_counts_pth_cat1 = np.zeros((n_bins_pth, args.n_replicas), dtype=np.int32)
+        replica_counts_pth_cat2 = np.zeros((n_bins_pth, args.n_replicas), dtype=np.int32)
+        replica_counts_nj_cat0 = np.zeros((n_bins_nj, args.n_replicas), dtype=np.int32)
+        replica_counts_nj_cat1 = np.zeros((n_bins_nj, args.n_replicas), dtype=np.int32)
+        replica_counts_nj_cat2 = np.zeros((n_bins_nj, args.n_replicas), dtype=np.int32)
+        replica_counts_rapidity_cat0 = np.zeros((n_bins_rapidity, args.n_replicas), dtype=np.int32)
+        replica_counts_rapidity_cat1 = np.zeros((n_bins_rapidity, args.n_replicas), dtype=np.int32)
+        replica_counts_rapidity_cat2 = np.zeros((n_bins_rapidity, args.n_replicas), dtype=np.int32)
+        replica_counts_ptj0_cat0 = np.zeros((n_bins_ptj0, args.n_replicas), dtype=np.int32)
+        replica_counts_ptj0_cat1 = np.zeros((n_bins_ptj0, args.n_replicas), dtype=np.int32)
+        replica_counts_ptj0_cat2 = np.zeros((n_bins_ptj0, args.n_replicas), dtype=np.int32)
+
+        iterator = parquet_files
+        if tqdm is not None:
+            iterator = tqdm(parquet_files, desc="Processing parquet files", unit="file")
+        else:
+            print(f"Processing {len(parquet_files)} parquet files...")
+
+        for i, path in enumerate(iterator, start=1):
+            if tqdm is None:
+                print(f"[{i}/{len(parquet_files)}] {path.name}")
+            df = pd.read_parquet(path)
+            #Check that all columns are there in the parquet file
+            if args.mass_column not in df.columns:
                 raise KeyError(
-                    f"Column '{c}' not found in file: {path}"
+                    f"Mass column '{args.mass_column}' not found in file: {path}"
                 )
-        for col, label in (
-            (PTH_COLUMN, "PTH (pt)"),
-            (NJ_COLUMN, "NJ"),
-            (PTJ0_COLUMN, "PTJ0"),
-        ):
-            if col not in df.columns:
-                raise KeyError(
-                    f"Column '{col}' ({label}) not found in file: {path}"
-                )
-        total_events += len(df)
-        mask = ((df[args.mass_column] < args.low_cut) | (df[args.mass_column] > args.high_cut)) & (df[args.mass_column] < 180) & (df[args.mass_column] > 100) & (df["lead_mvaID"] > 0.25) & (df["sublead_mvaID"] > 0.25)
-        df_sb = df.loc[mask].copy()
+            for c in id_cols:
+                if c not in df.columns:
+                    raise KeyError(
+                        f"Column '{c}' not found in file: {path}"
+                    )
+            for col, label in (
+                (PTH_COLUMN, "PTH (pt)"),
+                (NJ_COLUMN, "NJ"),
+                (RAPIDITY_COLUMN, "rapidity"),
+                (PTJ0_COLUMN, "PTJ0"),
+            ):
+                if col not in df.columns:
+                    raise KeyError(
+                        f"Column '{col}' ({label}) not found in file: {path}"
+                    )
+            total_events += len(df)
+            mask = ((df[args.mass_column] < args.low_cut) | (df[args.mass_column] > args.high_cut)) & (df[args.mass_column] < 180) & (df[args.mass_column] > 100) & (df["lead_mvaID"] > MVA[year]) & (df["sublead_mvaID"] > MVA[year])
+            df_sb = df.loc[mask].copy()
 
-        if df_sb.empty:
-            continue
+            if df_sb.empty:
+                continue
 
-        n_sb = len(df_sb)
-        r = df_sb[args.run_column].to_numpy()
-        lum = df_sb[args.lumi_column].to_numpy()
-        ev = df_sb[args.event_column].to_numpy()
-        ## seeds is a 1D array that holds the seed for every sideband event
-        seeds = seeds_from_run_lumi_event(r, lum, ev, args.seed_offset)
-        ## weight_matrix is a 2D array that holds the bootstrap weights for every sideband event and every replica
-        ## rows (n_sb) -> onw row per event that passed the sideband cut
-        ## columns (args.n_replicas) -> one column per replica
-        weight_matrix = poisson1_n_per_seed(seeds, args.n_replicas)
-        replica_counts += weight_matrix.sum(axis=0)
+            n_sb = len(df_sb)
+            r = df_sb[args.run_column].to_numpy()
+            lum = df_sb[args.lumi_column].to_numpy()
+            ev = df_sb[args.event_column].to_numpy()
+            ## seeds is a 1D array that holds the seed for every sideband event
+            seeds = seeds_from_run_lumi_event(r, lum, ev, args.seed_offset)
+            ## weight_matrix is a 2D array that holds the bootstrap weights for every sideband event and every replica
+            ## rows (n_sb) -> onw row per event that passed the sideband cut
+            ## columns (args.n_replicas) -> one column per replica
+            weight_matrix = poisson1_n_per_seed(seeds, args.n_replicas)
+            replica_counts += weight_matrix.sum(axis=0)
 
-        sigma_m_over_m = df_sb[CAT_VAR].to_numpy(dtype=np.float64)
-        pt = df_sb[PTH_COLUMN].to_numpy(dtype=np.float64)
-        finite_pt = np.isfinite(pt)
-        for b in range(n_bins_pth):
-            m_cat0 = finite_pt & edge_bin_mask(pt, edges_pth, b) & (sigma_m_over_m < CAT[0])
-            m_cat1 = finite_pt & edge_bin_mask(pt, edges_pth, b) & (sigma_m_over_m >= CAT[0]) & (sigma_m_over_m < CAT[1])
-            m_cat2 = finite_pt & edge_bin_mask(pt, edges_pth, b) & (sigma_m_over_m >= CAT[1]) & (sigma_m_over_m < CAT[2])
-            m = finite_pt & edge_bin_mask(pt, edges_pth, b)
-            replica_counts_pth_cat0[b] += weight_matrix[m_cat0].sum(axis=0)
-            replica_counts_pth_cat1[b] += weight_matrix[m_cat1].sum(axis=0)
-            replica_counts_pth_cat2[b] += weight_matrix[m_cat2].sum(axis=0)
+            sigma_m_over_m = df_sb[CAT_VAR].to_numpy(dtype=np.float64)
+            pt = df_sb[PTH_COLUMN].to_numpy(dtype=np.float64)
+            finite_pt = np.isfinite(pt)
+            for b in range(n_bins_pth):
+                m_cat0 = finite_pt & edge_bin_mask(pt, edges_pth, b, PTH_COLUMN) & (sigma_m_over_m < CAT[year][0])
+                m_cat1 = finite_pt & edge_bin_mask(pt, edges_pth, b, PTH_COLUMN) & (sigma_m_over_m >= CAT[year][0]) & (sigma_m_over_m < CAT[year][1])
+                m_cat2 = finite_pt & edge_bin_mask(pt, edges_pth, b, PTH_COLUMN) & (sigma_m_over_m >= CAT[year][1]) & (sigma_m_over_m < CAT[year][2])
+                m = finite_pt & edge_bin_mask(pt, edges_pth, b, PTH_COLUMN)
+                replica_counts_pth_cat0[b] += weight_matrix[m_cat0].sum(axis=0)
+                replica_counts_pth_cat1[b] += weight_matrix[m_cat1].sum(axis=0)
+                replica_counts_pth_cat2[b] += weight_matrix[m_cat2].sum(axis=0)
 
-        nj = df_sb[NJ_COLUMN].to_numpy(dtype=np.float64)
-        finite_nj = np.isfinite(nj)
-        for b in range(n_bins_nj):
-            m_cat0 = finite_nj & edge_bin_mask(nj, edges_nj, b) & (sigma_m_over_m < CAT[0])
-            m_cat1 = finite_nj & edge_bin_mask(nj, edges_nj, b) & (sigma_m_over_m >= CAT[0]) & (sigma_m_over_m < CAT[1])
-            m_cat2 = finite_nj & edge_bin_mask(nj, edges_nj, b) & (sigma_m_over_m >= CAT[1]) & (sigma_m_over_m < CAT[2])
-            replica_counts_nj_cat0[b] += weight_matrix[m_cat0].sum(axis=0)
-            replica_counts_nj_cat1[b] += weight_matrix[m_cat1].sum(axis=0)
-            replica_counts_nj_cat2[b] += weight_matrix[m_cat2].sum(axis=0)
+            nj = df_sb[NJ_COLUMN].to_numpy(dtype=np.float64)
+            finite_nj = np.isfinite(nj)
+            for b in range(n_bins_nj):
+                m_cat0 = finite_nj & edge_bin_mask(nj, edges_nj, b, NJ_COLUMN) & (sigma_m_over_m < CAT[year][0])
+                m_cat1 = finite_nj & edge_bin_mask(nj, edges_nj, b, NJ_COLUMN) & (sigma_m_over_m >= CAT[year][0]) & (sigma_m_over_m < CAT[year][1])
+                m_cat2 = finite_nj & edge_bin_mask(nj, edges_nj, b, NJ_COLUMN) & (sigma_m_over_m >= CAT[year][1]) & (sigma_m_over_m < CAT[year][2])
+                replica_counts_nj_cat0[b] += weight_matrix[m_cat0].sum(axis=0)
+                replica_counts_nj_cat1[b] += weight_matrix[m_cat1].sum(axis=0)
+                replica_counts_nj_cat2[b] += weight_matrix[m_cat2].sum(axis=0)
 
-        ptj0 = df_sb[PTJ0_COLUMN].to_numpy(dtype=np.float64)
-        finite_ptj0 = np.isfinite(ptj0)
-        for b in range(n_bins_ptj0):
-            m_cat0 = finite_ptj0 & edge_bin_mask(ptj0, edges_ptj0, b) & (sigma_m_over_m < CAT[0])
-            m_cat1 = finite_ptj0 & edge_bin_mask(ptj0, edges_ptj0, b) & (sigma_m_over_m >= CAT[0]) & (sigma_m_over_m < CAT[1])
-            m_cat2 = finite_ptj0 & edge_bin_mask(ptj0, edges_ptj0, b) & (sigma_m_over_m >= CAT[1]) & (sigma_m_over_m < CAT[2])
-            replica_counts_ptj0_cat0[b] += weight_matrix[m_cat0].sum(axis=0)
-            replica_counts_ptj0_cat1[b] += weight_matrix[m_cat1].sum(axis=0)
-            replica_counts_ptj0_cat2[b] += weight_matrix[m_cat2].sum(axis=0)
+            rapidity = df_sb[NJ_COLUMN].to_numpy(dtype=np.float64)
+            finite_rapidity = np.isfinite(rapidity)
+            for b in range(n_bins_rapidity):
+                m_cat0 = finite_rapidity & edge_bin_mask(rapidity, edges_rapidity, b, RAPIDITY_COLUMN) & (sigma_m_over_m < CAT[year][0])
+                m_cat1 = finite_rapidity & edge_bin_mask(rapidity, edges_rapidity, b, RAPIDITY_COLUMN) & (sigma_m_over_m >= CAT[year][0]) & (sigma_m_over_m < CAT[year][1])
+                m_cat2 = finite_rapidity & edge_bin_mask(rapidity, edges_rapidity, b, RAPIDITY_COLUMN) & (sigma_m_over_m >= CAT[year][1]) & (sigma_m_over_m < CAT[year][2])
+                replica_counts_rapidity_cat0[b] += weight_matrix[m_cat0].sum(axis=0)
+                replica_counts_rapidity_cat1[b] += weight_matrix[m_cat1].sum(axis=0)
+                replica_counts_rapidity_cat2[b] += weight_matrix[m_cat2].sum(axis=0)
+
+            ptj0 = df_sb[PTJ0_COLUMN].to_numpy(dtype=np.float64)
+            finite_ptj0 = np.isfinite(ptj0)
+            for b in range(n_bins_ptj0):
+                m_cat0 = finite_ptj0 & edge_bin_mask(ptj0, edges_ptj0, b, PTJ0_COLUMN) & (sigma_m_over_m < CAT[year][0])
+                m_cat1 = finite_ptj0 & edge_bin_mask(ptj0, edges_ptj0, b, PTJ0_COLUMN) & (sigma_m_over_m >= CAT[year][0]) & (sigma_m_over_m < CAT[year][1])
+                m_cat2 = finite_ptj0 & edge_bin_mask(ptj0, edges_ptj0, b, PTJ0_COLUMN) & (sigma_m_over_m >= CAT[year][1]) & (sigma_m_over_m < CAT[year][2])
+                replica_counts_ptj0_cat0[b] += weight_matrix[m_cat0].sum(axis=0)
+                replica_counts_ptj0_cat1[b] += weight_matrix[m_cat1].sum(axis=0)
+                replica_counts_ptj0_cat2[b] += weight_matrix[m_cat2].sum(axis=0)
 
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    with args.output.open("w", encoding="utf-8") as f:
-        f.write("# inclusive: sum of Poisson(1) weights in sidebands per replica\n")
-        f.write("# replica_index sideband_event_count\n")
-        for idx, count in enumerate(replica_counts):
-            f.write(f"{idx} {int(count)}\n")
+        args.output.parent.mkdir(parents=True, exist_ok=True)
 
-    stem = args.output.stem
-    parent = args.output.parent
-    pth_cat0_path = parent / f"{stem}_pth_cat0.txt"
-    pth_cat1_path = parent / f"{stem}_pth_cat1.txt"
-    pth_cat2_path = parent / f"{stem}_pth_cat2.txt"
-    nj_cat0_path = parent / f"{stem}_nj_cat0.txt"
-    nj_cat1_path = parent / f"{stem}_nj_cat1.txt"
-    nj_cat2_path = parent / f"{stem}_nj_cat2.txt"
-    ptj0_cat0_path = parent / f"{stem}_ptj0_cat0.txt"
-    ptj0_cat1_path = parent / f"{stem}_ptj0_cat1.txt"
-    ptj0_cat2_path = parent / f"{stem}_ptj0_cat2.txt"
-    write_binned_counts_txt(
-        pth_cat0_path,
-        "# PTH bins (column pt); sum of Poisson weights per bin per replica",
-        edges_pth,
-        replica_counts_pth_cat0,
-    )
-    write_binned_counts_txt(
-        pth_cat1_path,
-        "# PTH bins (column pt); sum of Poisson weights per bin per replica",
-        edges_pth,
-        replica_counts_pth_cat1,
-    )
-    write_binned_counts_txt(
-        pth_cat2_path,
-        "# PTH bins (column pt); sum of Poisson weights per bin per replica",
-        edges_pth,
-        replica_counts_pth_cat2,
-    )
-    write_binned_counts_txt(
-        nj_cat0_path,
-        "# NJ bins (column NJ); sum of Poisson weights per bin per replica",
-        edges_nj,
-        replica_counts_nj_cat0,
-    )
-    write_binned_counts_txt(
-        nj_cat1_path,
-        "# NJ bins (column NJ); sum of Poisson weights per bin per replica",
-        edges_nj,
-        replica_counts_nj_cat1,
-    )
-    write_binned_counts_txt(
-        nj_cat2_path,
-        "# NJ bins (column NJ); sum of Poisson weights per bin per replica",
-        edges_nj,
-        replica_counts_nj_cat2,
-    )
-    write_binned_counts_txt(
-        ptj0_cat0_path,
-        "# PTJ0 bins (column PTJ0); sum of Poisson weights per bin per replica",
-        edges_ptj0,
-        replica_counts_ptj0_cat0,
-    )
-    write_binned_counts_txt(
-        ptj0_cat1_path,
-        "# PTJ0 bins (column PTJ0); sum of Poisson weights per bin per replica",
-        edges_ptj0,
-        replica_counts_ptj0_cat1,
-    )
-    write_binned_counts_txt(
-        ptj0_cat2_path,
-        "# PTJ0 bins (column PTJ0); sum of Poisson weights per bin per replica",
-        edges_ptj0,
-        replica_counts_ptj0_cat2,
-    )
+        output_with_year = (
+            args.output.parent
+            / f"{args.output.stem}_{year}{args.output.suffix}"
+        )
 
-    print(f"PTH-cat0-binned output : {pth_cat0_path}")
-    print(f"PTH-cat1-binned output : {pth_cat1_path}")
-    print(f"PTH-cat2-binned output : {pth_cat2_path}")
-    print(f"NJ-cat0-binned output : {nj_cat0_path}")
-    print(f"NJ-cat1-binned output : {nj_cat1_path}")
-    print(f"NJ-cat2-binned output : {nj_cat2_path}")
-    print(f"PTJ0-cat0-binned output : {ptj0_cat0_path}")
-    print(f"PTJ0-cat1-binned output : {ptj0_cat1_path}")
-    print(f"PTJ0-cat2-binned output : {ptj0_cat2_path}")
+        with output_with_year.open("w", encoding="utf-8") as f:
+            f.write("# inclusive: sum of Poisson(1) weights in sidebands per replica\n")
+            f.write("# replica_index sideband_event_count\n")
+            for idx, count in enumerate(replica_counts):
+                f.write(f"{idx} {int(count)}\n")
+
+        stem = args.output.stem
+        parent = args.output.parent
+        pth_cat0_path = parent / f"{stem}_pth_cat0_{year}.txt"
+        pth_cat1_path = parent / f"{stem}_pth_cat1_{year}.txt"
+        pth_cat2_path = parent / f"{stem}_pth_cat2_{year}.txt"
+        nj_cat0_path = parent / f"{stem}_nj_cat0_{year}.txt"
+        nj_cat1_path = parent / f"{stem}_nj_cat1_{year}.txt"
+        nj_cat2_path = parent / f"{stem}_nj_cat2_{year}.txt"
+        rapidity_cat0_path = parent / f"{stem}_rapidity_cat0_{year}.txt"
+        rapidity_cat1_path = parent / f"{stem}_rapidity_cat1_{year}.txt"
+        rapidity_cat2_path = parent / f"{stem}_rapidity_cat2_{year}.txt"
+        ptj0_cat0_path = parent / f"{stem}_ptj0_cat0_{year}.txt"
+        ptj0_cat1_path = parent / f"{stem}_ptj0_cat1_{year}.txt"
+        ptj0_cat2_path = parent / f"{stem}_ptj0_cat2_{year}.txt"
+        write_binned_counts_txt(
+            pth_cat0_path,
+            "# PTH bins (column pt); sum of Poisson weights per bin per replica",
+            edges_pth,
+            replica_counts_pth_cat0,
+        )
+        write_binned_counts_txt(
+            pth_cat1_path,
+            "# PTH bins (column pt); sum of Poisson weights per bin per replica",
+            edges_pth,
+            replica_counts_pth_cat1,
+        )
+        write_binned_counts_txt(
+            pth_cat2_path,
+            "# PTH bins (column pt); sum of Poisson weights per bin per replica",
+            edges_pth,
+            replica_counts_pth_cat2,
+        )
+        write_binned_counts_txt(
+            nj_cat0_path,
+            "# NJ bins (column NJ); sum of Poisson weights per bin per replica",
+            edges_nj,
+            replica_counts_nj_cat0,
+        )
+        write_binned_counts_txt(
+            nj_cat1_path,
+            "# NJ bins (column NJ); sum of Poisson weights per bin per replica",
+            edges_nj,
+            replica_counts_nj_cat1,
+        )
+        write_binned_counts_txt(
+            nj_cat2_path,
+            "# NJ bins (column NJ); sum of Poisson weights per bin per replica",
+            edges_nj,
+            replica_counts_nj_cat2,
+        )
+        write_binned_counts_txt(
+            rapidity_cat0_path,
+            "# Rapidity bins (column rapidity); sum of Poisson weights per bin per replica",
+            edges_rapidity,
+            replica_counts_rapidity_cat0,
+        )
+        write_binned_counts_txt(
+            rapidity_cat1_path,
+            "# Rapidity bins (column rapidity); sum of Poisson weights per bin per replica",
+            edges_rapidity,
+            replica_counts_rapidity_cat1,
+        )
+        write_binned_counts_txt(
+            rapidity_cat2_path,
+            "# Rapidity bins (column rapidity); sum of Poisson weights per bin per replica",
+            edges_rapidity,
+            replica_counts_rapidity_cat2,
+        )
+        write_binned_counts_txt(
+            ptj0_cat0_path,
+            "# PTJ0 bins (column PTJ0); sum of Poisson weights per bin per replica",
+            edges_ptj0,
+            replica_counts_ptj0_cat0,
+        )
+        write_binned_counts_txt(
+            ptj0_cat1_path,
+            "# PTJ0 bins (column PTJ0); sum of Poisson weights per bin per replica",
+            edges_ptj0,
+            replica_counts_ptj0_cat1,
+        )
+        write_binned_counts_txt(
+            ptj0_cat2_path,
+            "# PTJ0 bins (column PTJ0); sum of Poisson weights per bin per replica",
+            edges_ptj0,
+            replica_counts_ptj0_cat2,
+        )
+
+        print(f"PTH-cat0-binned output : {pth_cat0_path}")
+        print(f"PTH-cat1-binned output : {pth_cat1_path}")
+        print(f"PTH-cat2-binned output : {pth_cat2_path}")
+        print(f"NJ-cat0-binned output : {nj_cat0_path}")
+        print(f"NJ-cat1-binned output : {nj_cat1_path}")
+        print(f"NJ-cat2-binned output : {nj_cat2_path}")
+        print(f"Rapidity-cat0-binned output : {rapidity_cat0_path}")
+        print(f"Rapidity-cat1-binned output : {rapidity_cat1_path}")
+        print(f"Rapidity-cat2-binned output : {rapidity_cat2_path}")
+        print(f"PTJ0-cat0-binned output : {ptj0_cat0_path}")
+        print(f"PTJ0-cat1-binned output : {ptj0_cat1_path}")
+        print(f"PTJ0-cat2-binned output : {ptj0_cat2_path}")
 
 
 if __name__ == "__main__":
