@@ -84,19 +84,19 @@ python3 extract_response_matrix.py \
 
 
 python3 extract_response_matrix.py \
-  --datacard datacards/Datacard_YH_2022_2023_2024.root \
+  --datacard datacards/Datacard_rapidity_2022_2023_2024.root \
   --out-prefix response_matrix_combined/response_matrix_YH \
   --order "rapidity_0p0_0p15,rapidity_0p15_0p3,rapidity_0p3_0p45,rapidity_0p45_0p6,rapidity_0p6_0p75,rapidity_0p75_0p9,rapidity_0p9_1p2,rapidity_1p2_1p6,rapidity_1p6_2p0,rapidity_2p0_2p5" \
   --category 0
 
 python3 extract_response_matrix.py \
-  --datacard datacards/Datacard_YH_2022_2023_2024.root \
+  --datacard datacards/Datacard_rapidity_2022_2023_2024.root \
   --out-prefix response_matrix_combined/response_matrix_YH \
   --order "rapidity_0p0_0p15,rapidity_0p15_0p3,rapidity_0p3_0p45,rapidity_0p45_0p6,rapidity_0p6_0p75,rapidity_0p75_0p9,rapidity_0p9_1p2,rapidity_1p2_1p6,rapidity_1p6_2p0,rapidity_2p0_2p5" \
   --category 1
 
 python3 extract_response_matrix.py \
-  --datacard datacards/Datacard_YH_2022_2023_2024.root \
+  --datacard datacards/Datacard_rapidity_2022_2023_2024.root \
   --out-prefix response_matrix_combined/response_matrix_YH \
   --order "rapidity_0p0_0p15,rapidity_0p15_0p3,rapidity_0p3_0p45,rapidity_0p45_0p6,rapidity_0p6_0p75,rapidity_0p75_0p9,rapidity_0p9_1p2,rapidity_1p2_1p6,rapidity_1p6_2p0,rapidity_2p0_2p5" \
   --category 2

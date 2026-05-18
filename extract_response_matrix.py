@@ -209,10 +209,17 @@ def build_matrices(
     reco_bins = sorted(reco_bins)
     gen_bins = sorted(gen_bins)
     # Example: Njets2p5_0p0_1p0 -> NJ_0p0_1p0
+
+    # Try adding rapidity_2p0_2p5
+    if "rapidity" == reco_bins[0].split("_")[0]:
+        reco_bins += ["rapidity_2p0_2p5"]
+        gen_bins += ["YH_2p0_2p5"]
+        print("Warning: Adding manually last bin of rapidity (we merge).")
+
     user_order_gen = [lab.replace("Njets2p5_", "NJ_") for lab in user_order]
     user_order_gen = [lab.replace("first_jet_pt_", "PTJ0_") for lab in user_order_gen]
     user_order_gen = [lab.replace("rapidity_", "YH_") for lab in user_order_gen]
-    gen_bins = apply_user_order(gen_bins, user_order_gen or [], "gen")
+    gen_bins = apply_user_order(gen_bins, user_order_gen or [], "gen")    
     reco_bins = apply_user_order(reco_bins, user_order or [], "reco")
 
     # Build mapping gen_bin -> index within its observable (NJ/PTH/PTJ0),
