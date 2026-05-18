@@ -21,7 +21,7 @@ INPUT_DIRS = {
     "2024": "/pnfs/psi.ch/cms/trivcat/store/user/niharrin/ntuples/midRun3/samples/2026_04_27_with_Zmmg_SaS/data/2024"
 }
 
-BINS_PTH = [0, 10, 15, 20, 25, 30, 35, 45, 60, 80, 100, 120, 140, 170, 200, 250, 350, 450, 10000]
+BINS_PTH = [0, 5, 10, 15, 20, 25, 30, 35, 45, 60, 80, 100, 120, 140, 170, 200, 250, 350, 450, 10000]
 BINS_NJ = [0, 1, 2, 3, 4, 1000]
 BINS_RAPIDITY = [0.0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.90, 1.2, 1.6, 2.0, 2.5]
 BINS_PTJ0 = [-10000, 30, 40, 55, 75, 95, 120, 150, 200, 10000]
@@ -296,7 +296,7 @@ def main() -> None:
                 replica_counts_nj_cat1[b] += weight_matrix[m_cat1].sum(axis=0)
                 replica_counts_nj_cat2[b] += weight_matrix[m_cat2].sum(axis=0)
 
-            rapidity = df_sb[NJ_COLUMN].to_numpy(dtype=np.float64)
+            rapidity = df_sb[RAPIDITY_COLUMN].to_numpy(dtype=np.float64)
             finite_rapidity = np.isfinite(rapidity)
             for b in range(n_bins_rapidity):
                 m_cat0 = finite_rapidity & edge_bin_mask(rapidity, edges_rapidity, b, RAPIDITY_COLUMN) & (sigma_m_over_m < CAT[year][0])
