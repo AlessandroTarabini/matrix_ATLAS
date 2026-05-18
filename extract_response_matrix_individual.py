@@ -53,13 +53,23 @@ DEFAULT_LUMIS = {
 }
 
 SUPPORTED_MODES = ("ggh", "vbf", "vh", "tth")
-SUPPORTED_ERAS = ("2022preEE", "2022postEE", "2023preBPix", "2023postBPix", "2024")
+# SUPPORTED_ERAS = ("2022preEE", "2022postEE")
+# SUPPORTED_ERAS = ("2023preBPix", "2023postBPix")
+SUPPORTED_ERAS = ["2024"]
 MODE_LABEL = {"ggh": "ggH", "vbf": "VBFH", "vh": "VH", "tth": "ttH"}
 ACCEPTANCE_FILE = Path("fiducial_acceptance.txt")
 
+FILE_RE = re.compile(r"^CMS-HGG_sigfit_packaged_(?P<reco>.+)_cat(?P<cat>\d+)\.root$")
+# SPLINE_RE = re.compile(
+#     r"^fea_(?P<prod>ggh|vbf|vh|tth)_(?P<gen>.+)_in_(?P<era>2022preEE|2022postEE)_(?P<reco>RECO_.+)_cat(?P<cat>\d+)_13TeV$"
+# )
+# SPLINE_RE = re.compile(
+#     r"^fea_(?P<prod>ggh|vbf|vh|tth)_(?P<gen>.+)_in_(?P<era>2023preBPix|2023postBPix)_(?P<reco>RECO_.+)_cat(?P<cat>\d+)_13TeV$"
+# )
 SPLINE_RE = re.compile(
-    r"^fea_(?P<prod>ggh|vbf|vh|tth)_(?P<gen>.+)_in_(?P<era>2022preEE|2022postEE|2023preBPix|2023postBPix|2024)_(?P<reco>RECO_.+)_cat(?P<cat>\d+)_13TeV$"
+    r"^fea_(?P<prod>ggh|vbf|vh|tth)_(?P<gen>.+)_in_(?P<era>2024)_(?P<reco>RECO_.+)_cat(?P<cat>\d+)_13TeV$"
 )
+
 
 def parse_kv_floats(values: List[str], expected_keys: Tuple[str, ...], kind: str) -> Dict[str, float]:
     out = {}
@@ -151,6 +161,19 @@ def load_acceptance_txt(path: Path) -> Dict[str, List[float]]:
     if not acc_map:
         raise ValueError(f"No acceptance entries found in {path}")
     return acc_map
+
+
+def list_reco_files(signal_dir: Path, category: int) -> List[Path]:
+    files = []
+    for path in sorted(signal_dir.glob("CMS-HGG_sigfit_packaged_*_cat*.root")):
+        # Replace catMerged with cat0
+        m = FILE_RE.match(path.name.replace("catMerged", "cat2"))
+        if not m:
+            continue
+        if int(m.group("cat")) != category:
+            continue
+        files.append(path)
+    return files
 
 
 def open_workspace(root_path: Path, ws_name: str):
@@ -259,10 +282,7 @@ def build_matrices(
                         w = xsecs[prod]
                         num += w * corrected_by_era_prod[era][prod][gen_bin][reco_bin]
                         den += w
-                if den > 0.0:
-                    matrix[gen_bin][reco_bin] = num / den 
-                else: 
-                    matrix[gen_bin][reco_bin] = 0.0 # None
+                matrix[gen_bin][reco_bin] = num / den if den > 0.0 else None
         per_era[era] = matrix
 
     combined = defaultdict(dict)
@@ -357,11 +377,11 @@ def plot_matrix(
 def main():
     parser = argparse.ArgumentParser(description="Extract response matrix from HGG signal workspaces.")
     parser.add_argument(
-        "--datacard",
-        default="signal_models/Datacard_PTH_2022_2023_2024.root",
-        help="Combined Datacard of the considered variable",
+        "--signal-dir",
+        default="datacards/differentials/Models_PTH/signal",
+        help="Directory containing CMS-HGG_sigfit_packaged_*.root files.",
     )
-    parser.add_argument("--workspace", default="w", help="Workspace name inside ROOT files.")
+    parser.add_argument("--workspace", default="wsig_13TeV", help="Workspace name inside ROOT files.")
     parser.add_argument("--category", type=int, default=0, help="Reco category (e.g. 0 for cat0).")
     parser.add_argument("--mh", type=float, default=125.38, help="MH value to evaluate RooSpline1D at.")
     parser.add_argument(
@@ -398,9 +418,9 @@ def main():
     parser.add_argument("--show-plots", action="store_true", help="Display plots interactively.")
     args = parser.parse_args()
 
-    datacard_path = Path(args.datacard)
-    if not datacard_path.exists():
-        raise FileNotFoundError(f"Datacard not found: {datacard_path}")
+    signal_dir = Path(args.signal_dir)
+    if not signal_dir.exists():
+        raise FileNotFoundError(f"Signal directory not found: {signal_dir}")
 
     xsecs = dict(DEFAULT_XSECS)
     lumis = dict(DEFAULT_LUMIS)
@@ -408,11 +428,17 @@ def main():
     lumis.update(parse_kv_floats(args.lumi, tuple(SUPPORTED_ERAS), "lumi"))
     acceptance = load_acceptance_txt(ACCEPTANCE_FILE)
 
+    reco_files = list_reco_files(signal_dir, args.category)
+    if not reco_files:
+        raise RuntimeError(f"No files found for category cat{args.category} in {signal_dir}")
+
     extracted = []
-    tf, ws = open_workspace(datacard_path, args.workspace)
-    extracted.extend(extract_values_from_workspace(ws, args.mh, args.category))
-    tf.Close()
-    # print(extracted)
+    for root_file in reco_files:
+        tf, ws = open_workspace(root_file, args.workspace)
+        try:
+            extracted.extend(extract_values_from_workspace(ws, args.mh, args.category))
+        finally:
+            tf.Close()
 
     if not extracted:
         raise RuntimeError("No matching 'fea_*' spline functions were found. Check naming conventions.")
@@ -432,35 +458,33 @@ def main():
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     out_json = out_prefix.with_suffix(".json")
     out_txt = out_prefix.with_suffix(".txt")
-    out_txt_22pre = out_prefix.with_name(out_prefix.name + "_2022preEE").with_suffix(".txt")
-    out_txt_22post = out_prefix.with_name(out_prefix.name + "_2022postEE").with_suffix(".txt")
-    out_txt_23pre = out_prefix.with_name(out_prefix.name + "_2023preBPix").with_suffix(".txt")
-    out_txt_23post = out_prefix.with_name(out_prefix.name + "_2023postBPix").with_suffix(".txt")
-    out_txt_24 = out_prefix.with_name(out_prefix.name + "_2024").with_suffix(".txt")
+    # out_txt_pre = out_prefix.with_name(out_prefix.name + "_2022preEE").with_suffix(".txt")
+    # out_txt_post = out_prefix.with_name(out_prefix.name + "_2022postEE").with_suffix(".txt")
+    # out_txt_pre = out_prefix.with_name(out_prefix.name + "_2023preBPix").with_suffix(".txt")
+    # out_txt_post = out_prefix.with_name(out_prefix.name + "_2023postBPix").with_suffix(".txt")
 
     out_png = out_prefix.with_suffix(".pdf")
-    out_png_22pre = out_prefix.with_name(out_prefix.name + "_2022preEE").with_suffix(".png")
-    out_png_22post = out_prefix.with_name(out_prefix.name + "_2022postEE").with_suffix(".png")
-    out_png_23pre = out_prefix.with_name(out_prefix.name + "_2023preBPix").with_suffix(".png")
-    out_png_23post = out_prefix.with_name(out_prefix.name + "_2023postBPix").with_suffix(".png")
-    out_png_24 = out_prefix.with_name(out_prefix.name + "_2024").with_suffix(".png")
+    # out_png_pre = out_prefix.with_name(out_prefix.name + "_2022preEE").with_suffix(".png")
+    # out_png_post = out_prefix.with_name(out_prefix.name + "_2022postEE").with_suffix(".png")
+    # out_png_pre = out_prefix.with_name(out_prefix.name + "_2023preBPix").with_suffix(".png")
+    # out_png_post = out_prefix.with_name(out_prefix.name + "_2023postBPix").with_suffix(".png")
     
     payload = {
         "inputs": {
-            "Datacard": str(datacard_path),
+            "signal_dir": str(signal_dir),
             "workspace": args.workspace,
             "category": args.category,
             "mh": args.mh,
             "xsecs": xsecs,
             "lumis": lumis,
-            # "n_reco_files": len(reco_files),
+            "n_reco_files": len(reco_files),
             "n_splines": len(extracted),
         },
         "axes": {"gen_bins": gen_bins, "reco_bins": reco_bins},
-        "matrix_2022preEE": per_era["2022preEE"],
-        "matrix_2022postEE": per_era["2022postEE"],
-        "matrix_2023preBPix": per_era["2023preBPix"],
-        "matrix_2023postBPix": per_era["2023postBPix"],
+        # "matrix_2022preEE": per_era["2022preEE"],
+        # "matrix_2022postEE": per_era["2022postEE"],
+        # "matrix_2023preBPix": per_era["2023preBPix"],
+        # "matrix_2023postBPix": per_era["2023postBPix"],
         "matrix_2024": per_era["2024"],
         "matrix_lumi_weighted": combined,
     }
@@ -468,40 +492,32 @@ def main():
     with out_json.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
 
-    write_txt(out_txt_22pre, gen_bins, reco_bins, per_era["2022preEE"])
-    write_txt(out_txt_22post, gen_bins, reco_bins, per_era["2022postEE"])
-    write_txt(out_txt_23pre, gen_bins, reco_bins, per_era["2023preBPix"])
-    write_txt(out_txt_23post, gen_bins, reco_bins, per_era["2023postBPix"])
-    write_txt(out_txt_24, gen_bins, reco_bins, per_era["2024"])
+    # write_txt(out_txt_pre, gen_bins, reco_bins, per_era["2022preEE"])
+    # write_txt(out_txt_post, gen_bins, reco_bins, per_era["2022postEE"])
+    # write_txt(out_txt_pre, gen_bins, reco_bins, per_era["2023preBPix"])
+    # write_txt(out_txt_post, gen_bins, reco_bins, per_era["2023postBPix"])
     write_txt(out_txt, gen_bins, reco_bins, combined)
 
     if not args.no_plot:
-        arr_22pre = matrix_to_array(gen_bins, reco_bins, per_era["2022preEE"])
-        arr_22post = matrix_to_array(gen_bins, reco_bins, per_era["2022postEE"])
-        arr_23pre = matrix_to_array(gen_bins, reco_bins, per_era["2023preBPix"])
-        arr_23post = matrix_to_array(gen_bins, reco_bins, per_era["2023postBPix"])
-        arr_24 = matrix_to_array(gen_bins, reco_bins, per_era["2024"])
+        # arr_pre = matrix_to_array(gen_bins, reco_bins, per_era["2022preEE"])
+        # arr_post = matrix_to_array(gen_bins, reco_bins, per_era["2022postEE"])
+        # arr_pre = matrix_to_array(gen_bins, reco_bins, per_era["2023preBPix"])
+        # arr_post = matrix_to_array(gen_bins, reco_bins, per_era["2023postBPix"])
         arr_comb = matrix_to_array(gen_bins, reco_bins, combined)
-        plot_matrix(arr_22pre, gen_bins, reco_bins, "Response Matrix (2022preEE)", out_png_22pre, show=args.show_plots)
-        plot_matrix(arr_22post, gen_bins, reco_bins, "Response Matrix (2022postEE)", out_png_22post, show=args.show_plots)
-        plot_matrix(arr_23pre, gen_bins, reco_bins, "Response Matrix (2023preBPix)", out_png_23pre, show=args.show_plots)
-        plot_matrix(arr_23post, gen_bins, reco_bins, "Response Matrix (2023postBPix)", out_png_23post, show=args.show_plots)
-        plot_matrix(arr_24, gen_bins, reco_bins, "Response Matrix (2024)", out_png_24, show=args.show_plots)
+        # plot_matrix(arr_pre, gen_bins, reco_bins, "Response Matrix (2022preEE)", out_png_pre, show=args.show_plots)
+        # plot_matrix(arr_post, gen_bins, reco_bins, "Response Matrix (2022postEE)", out_png_post, show=args.show_plots)
+        # plot_matrix(arr_pre, gen_bins, reco_bins, "Response Matrix (2023preBPix)", out_png_pre, show=args.show_plots)
+        # plot_matrix(arr_post, gen_bins, reco_bins, "Response Matrix (2023postBPix)", out_png_post, show=args.show_plots)
+        plot_matrix(arr_comb, gen_bins, reco_bins, "Response Matrix (2024)", out_png, show=args.show_plots)
         plot_matrix(arr_comb, gen_bins, reco_bins, "Response Matrix (lumi weighted)", out_png, show=args.show_plots)
 
     print(f"Wrote {out_json}")
-    print(f"Wrote {out_txt_22pre}")
-    print(f"Wrote {out_txt_22post}")
-    print(f"Wrote {out_txt_23pre}")
-    print(f"Wrote {out_txt_23post}")
-    print(f"Wrote {out_txt_24}")
+    # print(f"Wrote {out_txt_pre}")
+    # print(f"Wrote {out_txt_post}")
     print(f"Wrote {out_txt}")
     if not args.no_plot:
-        print(f"Wrote {out_png_22pre}")
-        print(f"Wrote {out_png_22post}")
-        print(f"Wrote {out_png_23pre}")
-        print(f"Wrote {out_png_23post}")
-        print(f"Wrote {out_png_24}")
+        # print(f"Wrote {out_png_pre}")
+        # print(f"Wrote {out_png_post}")
         print(f"Wrote {out_png}")
 
 
