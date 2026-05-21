@@ -54,6 +54,7 @@ DEFAULT_LUMIS = {
 
 SUPPORTED_MODES = ("ggh", "vbf", "vh", "tth")
 SUPPORTED_ERAS = ("2022preEE", "2022postEE", "2023preBPix", "2023postBPix", "2024")
+# SUPPORTED_ERAS = ("2022preEE", "2022postEE")
 MODE_LABEL = {"ggh": "ggH", "vbf": "VBFH", "vh": "VH", "tth": "ttH"}
 ACCEPTANCE_FILE = Path("fiducial_acceptance.txt")
 
@@ -215,6 +216,12 @@ def build_matrices(
         reco_bins += ["rapidity_2p0_2p5"]
         gen_bins += ["YH_2p0_2p5"]
         print("Warning: Adding manually last bin of rapidity (we merge).")
+
+    # Try adding PTH_450p0_10000p0
+    elif "PTH" == reco_bins[0].split("_")[0]:
+        reco_bins += ["PTH_450p0_10000p0"]
+        gen_bins += ["PTH_450p0_10000p0"]
+        print("Warning: Adding manually last bin of PTH (we merge).")
 
     user_order_gen = [lab.replace("Njets2p5_", "NJ_") for lab in user_order]
     user_order_gen = [lab.replace("first_jet_pt_", "PTJ0_") for lab in user_order_gen]
