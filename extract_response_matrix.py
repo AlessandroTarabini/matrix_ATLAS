@@ -377,7 +377,7 @@ def main():
     )
     parser.add_argument("--workspace", default="w", help="Workspace name inside ROOT files.")
     parser.add_argument("--category", type=int, default=0, help="Reco category (e.g. 0 for cat0).")
-    parser.add_argument("--mh", type=float, default=125.38, help="MH value to evaluate RooSpline1D at.")
+    parser.add_argument("--mh", type=float, default=125.07, help="MH value to evaluate RooSpline1D at.")
     parser.add_argument(
         "--xsec",
         action="append",

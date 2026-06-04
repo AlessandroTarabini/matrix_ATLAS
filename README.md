@@ -33,7 +33,7 @@ The steps to extract this matrix are encoded in the following scripts:
 List of commands:
 
 ```
-python3 bootstrap.py --n-replicas 10000 --output bootstrap/bootstrap_sideband_counts.txt
+python3 bootstrap.py --n-replicas 100000 --output bootstrap/bootstrap_sideband_counts.txt
 ```
 
 ```
