@@ -53,22 +53,22 @@ DEFAULT_LUMIS = {
 }
 
 SUPPORTED_MODES = ("ggh", "vbf", "vh", "tth")
-# SUPPORTED_ERAS = ("2022preEE", "2022postEE")
+SUPPORTED_ERAS = ("2022preEE", "2022postEE")
 # SUPPORTED_ERAS = ("2023preBPix", "2023postBPix")
-SUPPORTED_ERAS = ["2024"]
+# SUPPORTED_ERAS = ["2024"]
 MODE_LABEL = {"ggh": "ggH", "vbf": "VBFH", "vh": "VH", "tth": "ttH"}
 ACCEPTANCE_FILE = Path("fiducial_acceptance.txt")
 
 FILE_RE = re.compile(r"^CMS-HGG_sigfit_packaged_(?P<reco>.+)_cat(?P<cat>\d+)\.root$")
-# SPLINE_RE = re.compile(
-#     r"^fea_(?P<prod>ggh|vbf|vh|tth)_(?P<gen>.+)_in_(?P<era>2022preEE|2022postEE)_(?P<reco>RECO_.+)_cat(?P<cat>\d+)_13TeV$"
-# )
+SPLINE_RE = re.compile(
+    r"^fea_(?P<prod>ggh|vbf|vh|tth)_(?P<gen>.+)_in_(?P<era>2022preEE|2022postEE)_(?P<reco>RECO_.+)_cat(?P<cat>\d+)_13TeV$"
+)
 # SPLINE_RE = re.compile(
 #     r"^fea_(?P<prod>ggh|vbf|vh|tth)_(?P<gen>.+)_in_(?P<era>2023preBPix|2023postBPix)_(?P<reco>RECO_.+)_cat(?P<cat>\d+)_13TeV$"
 # )
-SPLINE_RE = re.compile(
-    r"^fea_(?P<prod>ggh|vbf|vh|tth)_(?P<gen>.+)_in_(?P<era>2024)_(?P<reco>RECO_.+)_cat(?P<cat>\d+)_13TeV$"
-)
+# SPLINE_RE = re.compile(
+#     r"^fea_(?P<prod>ggh|vbf|vh|tth)_(?P<gen>.+)_in_(?P<era>2024)_(?P<reco>RECO_.+)_cat(?P<cat>\d+)_13TeV$"
+# )
 
 
 def parse_kv_floats(values: List[str], expected_keys: Tuple[str, ...], kind: str) -> Dict[str, float]:
@@ -235,6 +235,7 @@ def build_matrices(
     user_order_gen = [lab.replace("Njets2p5_", "NJ_") for lab in user_order]
     user_order_gen = [lab.replace("first_jet_pt_", "PTJ0_") for lab in user_order_gen]
     user_order_gen = [lab.replace("rapidity_", "YH_") for lab in user_order_gen]
+    user_order_gen = [lab.replace("m3p1416_3p1416_underflow","m10000p0_m3p1416") for lab in user_order_gen]
     gen_bins = apply_user_order(gen_bins, user_order_gen or [], "gen")
     reco_bins = apply_user_order(reco_bins, user_order or [], "reco")
 
@@ -268,7 +269,7 @@ def build_matrices(
         if acc <= 0.0:
             raise ValueError(f"Non-positive acceptance for [{section}] bin {idx}: {acc}")
         # corrected_by_era_prod[era][prod][gen_bin][reco_bin] = val / acc
-        corrected_by_era_prod[era][prod][gen_bin][reco_bin] = val
+        corrected_by_era_prod[era][prod][gen_bin][reco_bin] = val * 100
 
     per_era = {}
     for era in SUPPORTED_ERAS:
@@ -383,7 +384,7 @@ def main():
     )
     parser.add_argument("--workspace", default="wsig_13TeV", help="Workspace name inside ROOT files.")
     parser.add_argument("--category", type=int, default=0, help="Reco category (e.g. 0 for cat0).")
-    parser.add_argument("--mh", type=float, default=125.38, help="MH value to evaluate RooSpline1D at.")
+    parser.add_argument("--mh", type=float, default=125.07, help="MH value to evaluate RooSpline1D at.")
     parser.add_argument(
         "--xsec",
         action="append",
@@ -458,14 +459,14 @@ def main():
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     out_json = out_prefix.with_suffix(".json")
     out_txt = out_prefix.with_suffix(".txt")
-    # out_txt_pre = out_prefix.with_name(out_prefix.name + "_2022preEE").with_suffix(".txt")
-    # out_txt_post = out_prefix.with_name(out_prefix.name + "_2022postEE").with_suffix(".txt")
+    out_txt_pre = out_prefix.with_name(out_prefix.name + "_2022preEE").with_suffix(".txt")
+    out_txt_post = out_prefix.with_name(out_prefix.name + "_2022postEE").with_suffix(".txt")
     # out_txt_pre = out_prefix.with_name(out_prefix.name + "_2023preBPix").with_suffix(".txt")
     # out_txt_post = out_prefix.with_name(out_prefix.name + "_2023postBPix").with_suffix(".txt")
 
     out_png = out_prefix.with_suffix(".pdf")
-    # out_png_pre = out_prefix.with_name(out_prefix.name + "_2022preEE").with_suffix(".png")
-    # out_png_post = out_prefix.with_name(out_prefix.name + "_2022postEE").with_suffix(".png")
+    out_png_pre = out_prefix.with_name(out_prefix.name + "_2022preEE").with_suffix(".png")
+    out_png_post = out_prefix.with_name(out_prefix.name + "_2022postEE").with_suffix(".png")
     # out_png_pre = out_prefix.with_name(out_prefix.name + "_2023preBPix").with_suffix(".png")
     # out_png_post = out_prefix.with_name(out_prefix.name + "_2023postBPix").with_suffix(".png")
     
@@ -481,43 +482,43 @@ def main():
             "n_splines": len(extracted),
         },
         "axes": {"gen_bins": gen_bins, "reco_bins": reco_bins},
-        # "matrix_2022preEE": per_era["2022preEE"],
-        # "matrix_2022postEE": per_era["2022postEE"],
+        "matrix_2022preEE": per_era["2022preEE"],
+        "matrix_2022postEE": per_era["2022postEE"],
         # "matrix_2023preBPix": per_era["2023preBPix"],
         # "matrix_2023postBPix": per_era["2023postBPix"],
-        "matrix_2024": per_era["2024"],
+        # "matrix_2024": per_era["2024"],
         "matrix_lumi_weighted": combined,
     }
 
     with out_json.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
 
-    # write_txt(out_txt_pre, gen_bins, reco_bins, per_era["2022preEE"])
-    # write_txt(out_txt_post, gen_bins, reco_bins, per_era["2022postEE"])
+    write_txt(out_txt_pre, gen_bins, reco_bins, per_era["2022preEE"])
+    write_txt(out_txt_post, gen_bins, reco_bins, per_era["2022postEE"])
     # write_txt(out_txt_pre, gen_bins, reco_bins, per_era["2023preBPix"])
     # write_txt(out_txt_post, gen_bins, reco_bins, per_era["2023postBPix"])
     write_txt(out_txt, gen_bins, reco_bins, combined)
 
     if not args.no_plot:
-        # arr_pre = matrix_to_array(gen_bins, reco_bins, per_era["2022preEE"])
-        # arr_post = matrix_to_array(gen_bins, reco_bins, per_era["2022postEE"])
+        arr_pre = matrix_to_array(gen_bins, reco_bins, per_era["2022preEE"])
+        arr_post = matrix_to_array(gen_bins, reco_bins, per_era["2022postEE"])
         # arr_pre = matrix_to_array(gen_bins, reco_bins, per_era["2023preBPix"])
         # arr_post = matrix_to_array(gen_bins, reco_bins, per_era["2023postBPix"])
         arr_comb = matrix_to_array(gen_bins, reco_bins, combined)
-        # plot_matrix(arr_pre, gen_bins, reco_bins, "Response Matrix (2022preEE)", out_png_pre, show=args.show_plots)
-        # plot_matrix(arr_post, gen_bins, reco_bins, "Response Matrix (2022postEE)", out_png_post, show=args.show_plots)
+        plot_matrix(arr_pre, gen_bins, reco_bins, "Response Matrix (2022preEE)", out_png_pre, show=args.show_plots)
+        plot_matrix(arr_post, gen_bins, reco_bins, "Response Matrix (2022postEE)", out_png_post, show=args.show_plots)
         # plot_matrix(arr_pre, gen_bins, reco_bins, "Response Matrix (2023preBPix)", out_png_pre, show=args.show_plots)
         # plot_matrix(arr_post, gen_bins, reco_bins, "Response Matrix (2023postBPix)", out_png_post, show=args.show_plots)
-        plot_matrix(arr_comb, gen_bins, reco_bins, "Response Matrix (2024)", out_png, show=args.show_plots)
+        # plot_matrix(arr_comb, gen_bins, reco_bins, "Response Matrix (2024)", out_png, show=args.show_plots)
         plot_matrix(arr_comb, gen_bins, reco_bins, "Response Matrix (lumi weighted)", out_png, show=args.show_plots)
 
     print(f"Wrote {out_json}")
-    # print(f"Wrote {out_txt_pre}")
-    # print(f"Wrote {out_txt_post}")
+    print(f"Wrote {out_txt_pre}")
+    print(f"Wrote {out_txt_post}")
     print(f"Wrote {out_txt}")
     if not args.no_plot:
-        # print(f"Wrote {out_png_pre}")
-        # print(f"Wrote {out_png_post}")
+        print(f"Wrote {out_png_pre}")
+        print(f"Wrote {out_png_post}")
         print(f"Wrote {out_png}")
 
 

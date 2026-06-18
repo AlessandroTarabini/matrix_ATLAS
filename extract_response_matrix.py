@@ -54,10 +54,11 @@ DEFAULT_LUMIS = {
 
 SUPPORTED_MODES = ("ggh", "vbf", "vh", "tth")
 SUPPORTED_ERAS = ("2022preEE", "2022postEE", "2023preBPix", "2023postBPix", "2024")
-# SUPPORTED_ERAS = ("2022preEE", "2022postEE")
+CONSIDERED_YEARS = ["2022", "2023", "2024"]
 MODE_LABEL = {"ggh": "ggH", "vbf": "VBFH", "vh": "VH", "tth": "ttH"}
 ACCEPTANCE_FILE = Path("fiducial_acceptance.txt")
 
+FILE_RE = re.compile(r"^CMS-HGG_sigfit_packaged_(?P<reco>.+)_cat(?P<cat>\d+)\.root$")
 SPLINE_RE = re.compile(
     r"^fea_(?P<prod>ggh|vbf|vh|tth)_(?P<gen>.+)_in_(?P<era>2022preEE|2022postEE|2023preBPix|2023postBPix|2024)_(?P<reco>RECO_.+)_cat(?P<cat>\d+)_13TeV$"
 )
@@ -177,7 +178,6 @@ def extract_values_from_workspace(ws, mh_value: float, category: int):
     obj = it.Next()
     while obj:
         name = obj.GetName()
-        name = name.replace("catMerged", "cat2")
         m = SPLINE_RE.match(name)
         if m and int(m.group("cat")) == category:
             prod = m.group("prod")
@@ -226,6 +226,7 @@ def build_matrices(
     user_order_gen = [lab.replace("Njets2p5_", "NJ_") for lab in user_order]
     user_order_gen = [lab.replace("first_jet_pt_", "PTJ0_") for lab in user_order_gen]
     user_order_gen = [lab.replace("rapidity_", "YH_") for lab in user_order_gen]
+    user_order_gen = [lab.replace("m3p1416_3p1416_underflow","m10000p0_m3p1416") for lab in user_order_gen]
     gen_bins = apply_user_order(gen_bins, user_order_gen or [], "gen")    
     reco_bins = apply_user_order(reco_bins, user_order or [], "reco")
 
@@ -258,7 +259,6 @@ def build_matrices(
         acc = acceptance[section][idx]
         if acc <= 0.0:
             raise ValueError(f"Non-positive acceptance for [{section}] bin {idx}: {acc}")
-        # corrected_by_era_prod[era][prod][gen_bin][reco_bin] = val / acc
         corrected_by_era_prod[era][prod][gen_bin][reco_bin] = val
 
     per_era = {}
@@ -271,6 +271,11 @@ def build_matrices(
                 for prod in SUPPORTED_MODES:
                     if gen_bin in corrected_by_era_prod[era][prod] and reco_bin in corrected_by_era_prod[era][prod][gen_bin]:
                         w = xsecs[prod]
+                        obs = gen_bin.split("_", 1)[0]
+                        section = f"{obs}_{MODE_LABEL[prod]}"
+                        idx = gen_index.get(gen_bin)
+                        acc = acceptance[section][idx]
+                        # w *= acc
                         num += w * corrected_by_era_prod[era][prod][gen_bin][reco_bin]
                         den += w
                 if den > 0.0:
@@ -367,15 +372,28 @@ def plot_matrix(
         plt.show()
     plt.close(fig)
 
+def list_reco_files(signal_dir: Path, category: int) -> List[Path]:
+    files = []
+    for path in sorted(signal_dir.glob("CMS-HGG_sigfit_packaged_*_cat*.root")):
+        # Replace catMerged with cat0
+        m = FILE_RE.match(path.name.replace("catMerged", "cat2"))
+        if not m:
+            continue
+        if int(m.group("cat")) != category:
+            continue
+        files.append(path)
+    return files
+
 
 def main():
     parser = argparse.ArgumentParser(description="Extract response matrix from HGG signal workspaces.")
     parser.add_argument(
-        "--datacard",
-        default="signal_models/Datacard_PTH_2022_2023_2024.root",
-        help="Combined Datacard of the considered variable",
+        "--signal-dir",
+        default="signal_models/",
+        help="Directory containing CMS-HGG_sigfit_packaged_*.root files.",
     )
-    parser.add_argument("--workspace", default="w", help="Workspace name inside ROOT files.")
+    parser.add_argument("--obs", default="PTH", help="Observable name.")
+    parser.add_argument("--workspace", default="wsig_13TeV", help="Workspace name inside ROOT files.")
     parser.add_argument("--category", type=int, default=0, help="Reco category (e.g. 0 for cat0).")
     parser.add_argument("--mh", type=float, default=125.07, help="MH value to evaluate RooSpline1D at.")
     parser.add_argument(
@@ -412,21 +430,33 @@ def main():
     parser.add_argument("--show-plots", action="store_true", help="Display plots interactively.")
     args = parser.parse_args()
 
-    datacard_path = Path(args.datacard)
-    if not datacard_path.exists():
-        raise FileNotFoundError(f"Datacard not found: {datacard_path}")
-
     xsecs = dict(DEFAULT_XSECS)
     lumis = dict(DEFAULT_LUMIS)
     xsecs.update(parse_kv_floats(args.xsec, tuple(SUPPORTED_MODES), "xsec"))
     lumis.update(parse_kv_floats(args.lumi, tuple(SUPPORTED_ERAS), "lumi"))
     acceptance = load_acceptance_txt(ACCEPTANCE_FILE)
 
+    signal_dir = Path(args.signal_dir)
+    if not signal_dir.exists():
+        raise FileNotFoundError(f"Signal directory not found: {signal_dir}")
+
+    # Include all considered years
+    reco_files = []
+
+    for year in CONSIDERED_YEARS:
+        current_signal_dir = Path(signal_dir, year, str(args.obs))
+        current_reco_files = list_reco_files(current_signal_dir, args.category)
+        if not current_reco_files:
+            raise RuntimeError(f"No files found for category cat{args.category} in {current_signal_dir}")
+        reco_files += current_reco_files
+
     extracted = []
-    tf, ws = open_workspace(datacard_path, args.workspace)
-    extracted.extend(extract_values_from_workspace(ws, args.mh, args.category))
-    tf.Close()
-    # print(extracted)
+    for root_file in reco_files:
+        tf, ws = open_workspace(root_file, args.workspace)
+        try:
+            extracted.extend(extract_values_from_workspace(ws, args.mh, args.category))
+        finally:
+            tf.Close()
 
     if not extracted:
         raise RuntimeError("No matching 'fea_*' spline functions were found. Check naming conventions.")
@@ -461,7 +491,7 @@ def main():
     
     payload = {
         "inputs": {
-            "Datacard": str(datacard_path),
+            "signal_dir": str(signal_dir),
             "workspace": args.workspace,
             "category": args.category,
             "mh": args.mh,

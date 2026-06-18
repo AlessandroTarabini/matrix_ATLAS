@@ -25,17 +25,26 @@ BINS_PTH = [0, 5, 10, 15, 20, 25, 30, 35, 45, 60, 80, 100, 120, 140, 170, 200, 2
 BINS_NJ = [0, 1, 2, 3, 4, 1000]
 BINS_RAPIDITY = [0.0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.90, 1.2, 1.6, 2.0, 2.5]
 BINS_PTJ0 = [-10000, 30, 40, 55, 75, 95, 120, 150, 200, 10000]
+BINS_DPHIJ0J1 = [-10000, -3.1415926, -1.570796, 0.0, 1.570796, 3.1415926]
 
 PTH_COLUMN = "pt"
 NJ_COLUMN = "NJ"
 RAPIDITY_COLUMN = "rapidity"
 PTJ0_COLUMN = "PTJ0"
+DPHIJ0J1_COLUMN = "DPhiJ0J1"
 
 CAT = {
     "2022": [0.0105, 0.013, 0.0315],
     "2023": [0.011, 0.0145, 0.0315],
     "2024": [0.0115, 0.0175, 0.0315]
 }
+
+CAT_RAPIDITY = {
+    "2022": [0.015, 0.019, 0.0315],
+    "2023": [0.019, 0.0220, 0.0315],
+    "2024": [0.0195, 0.0225, 0.0315]
+}
+
 CAT_VAR = "sigma_m_over_m_smeared_decorr"
 
 MVA = {
@@ -208,6 +217,8 @@ def main() -> None:
         n_bins_rapidity = len(edges_rapidity) - 1
         edges_ptj0 = np.asarray(BINS_PTJ0, dtype=np.float64)
         n_bins_ptj0 = len(edges_ptj0) - 1
+        edges_DPhiJ0J1 = np.asarray(BINS_DPHIJ0J1, dtype=np.float64)
+        n_bins_DPhiJ0J1 = len(edges_DPhiJ0J1) - 1
 
         total_events = 0
         total_sideband_events = 0
@@ -224,6 +235,9 @@ def main() -> None:
         replica_counts_ptj0_cat0 = np.zeros((n_bins_ptj0, args.n_replicas), dtype=np.int32)
         replica_counts_ptj0_cat1 = np.zeros((n_bins_ptj0, args.n_replicas), dtype=np.int32)
         replica_counts_ptj0_cat2 = np.zeros((n_bins_ptj0, args.n_replicas), dtype=np.int32)
+        replica_counts_DPhiJ0J1_cat0 = np.zeros((n_bins_DPhiJ0J1, args.n_replicas), dtype=np.int32)
+        replica_counts_DPhiJ0J1_cat1 = np.zeros((n_bins_DPhiJ0J1, args.n_replicas), dtype=np.int32)
+        replica_counts_DPhiJ0J1_cat2 = np.zeros((n_bins_DPhiJ0J1, args.n_replicas), dtype=np.int32)
 
         iterator = parquet_files
         if tqdm is not None:
@@ -276,6 +290,9 @@ def main() -> None:
 
             sigma_m_over_m = df_sb[CAT_VAR].to_numpy(dtype=np.float64)
             pt = df_sb[PTH_COLUMN].to_numpy(dtype=np.float64)
+            MassJ0J1 = df_sb["MassJ0J1"].to_numpy(dtype=np.float64)
+            EtaJ0J1 = df_sb["EtaJ0J1"].to_numpy(dtype=np.float64)
+            DPhiJ0J1 = df_sb[DPHIJ0J1_COLUMN].to_numpy(dtype=np.float64)
             finite_pt = np.isfinite(pt)
             for b in range(n_bins_pth):
                 m_cat0 = finite_pt & edge_bin_mask(pt, edges_pth, b, PTH_COLUMN) & (sigma_m_over_m < CAT[year][0])
@@ -299,9 +316,14 @@ def main() -> None:
             rapidity = df_sb[RAPIDITY_COLUMN].to_numpy(dtype=np.float64)
             finite_rapidity = np.isfinite(rapidity)
             for b in range(n_bins_rapidity):
-                m_cat0 = finite_rapidity & edge_bin_mask(rapidity, edges_rapidity, b, RAPIDITY_COLUMN) & (sigma_m_over_m < CAT[year][0])
-                m_cat1 = finite_rapidity & edge_bin_mask(rapidity, edges_rapidity, b, RAPIDITY_COLUMN) & (sigma_m_over_m >= CAT[year][0]) & (sigma_m_over_m < CAT[year][1])
-                m_cat2 = finite_rapidity & edge_bin_mask(rapidity, edges_rapidity, b, RAPIDITY_COLUMN) & (sigma_m_over_m >= CAT[year][1]) & (sigma_m_over_m < CAT[year][2])
+                if b > 6:
+                    m_cat0 = finite_rapidity & edge_bin_mask(rapidity, edges_rapidity, b, RAPIDITY_COLUMN) & (sigma_m_over_m < CAT_RAPIDITY[year][0])
+                    m_cat1 = finite_rapidity & edge_bin_mask(rapidity, edges_rapidity, b, RAPIDITY_COLUMN) & (sigma_m_over_m >= CAT_RAPIDITY[year][0]) & (sigma_m_over_m < CAT_RAPIDITY[year][1])
+                    m_cat2 = finite_rapidity & edge_bin_mask(rapidity, edges_rapidity, b, RAPIDITY_COLUMN) & (sigma_m_over_m >= CAT_RAPIDITY[year][1]) & (sigma_m_over_m < CAT_RAPIDITY[year][2])
+                else:
+                    m_cat0 = finite_rapidity & edge_bin_mask(rapidity, edges_rapidity, b, RAPIDITY_COLUMN) & (sigma_m_over_m < CAT[year][0])
+                    m_cat1 = finite_rapidity & edge_bin_mask(rapidity, edges_rapidity, b, RAPIDITY_COLUMN) & (sigma_m_over_m >= CAT[year][0]) & (sigma_m_over_m < CAT[year][1])
+                    m_cat2 = finite_rapidity & edge_bin_mask(rapidity, edges_rapidity, b, RAPIDITY_COLUMN) & (sigma_m_over_m >= CAT[year][1]) & (sigma_m_over_m < CAT[year][2])
                 replica_counts_rapidity_cat0[b] += weight_matrix[m_cat0].sum(axis=0)
                 replica_counts_rapidity_cat1[b] += weight_matrix[m_cat1].sum(axis=0)
                 replica_counts_rapidity_cat2[b] += weight_matrix[m_cat2].sum(axis=0)
@@ -315,6 +337,36 @@ def main() -> None:
                 replica_counts_ptj0_cat0[b] += weight_matrix[m_cat0].sum(axis=0)
                 replica_counts_ptj0_cat1[b] += weight_matrix[m_cat1].sum(axis=0)
                 replica_counts_ptj0_cat2[b] += weight_matrix[m_cat2].sum(axis=0)
+
+            finite_DPhiJ0J1 = np.isfinite(DPhiJ0J1)
+            for b in range(n_bins_DPhiJ0J1):
+                m_cat0 = finite_DPhiJ0J1 & (sigma_m_over_m < CAT[year][0])
+                m_cat1 = finite_DPhiJ0J1 & (sigma_m_over_m >= CAT[year][0]) & (sigma_m_over_m < CAT[year][1])
+                m_cat2 = finite_DPhiJ0J1 & (sigma_m_over_m >= CAT[year][1]) & (sigma_m_over_m < CAT[year][2])
+                if b == 0:
+                    # underflow bin
+                    m_cat0 = m_cat0 & ((nj < 2) | ((nj > 1) & (MassJ0J1 <= 450)) | ((nj > 1) & (MassJ0J1 > 450)) & (EtaJ0J1 > -3.0) & (EtaJ0J1 <= 3.0)) 
+                    m_cat1 = m_cat1 & ((nj < 2) | ((nj > 1) & (MassJ0J1 <= 450)) | ((nj > 1) & (MassJ0J1 > 450)) & (EtaJ0J1 > -3.0) & (EtaJ0J1 <= 3.0)) 
+                    m_cat2 = m_cat2 & ((nj < 2) | ((nj > 1) & (MassJ0J1 <= 450)) | ((nj > 1) & (MassJ0J1 > 450)) & (EtaJ0J1 > -3.0) & (EtaJ0J1 <= 3.0)) 
+                else: 
+                    # any other bin (apply VBF cuts)
+                    m_cat0 = m_cat0 & edge_bin_mask(DPhiJ0J1, edges_DPhiJ0J1, b, DPHIJ0J1_COLUMN) & (nj > 1) & (MassJ0J1 > 450) & ((EtaJ0J1 > 3.0) | (EtaJ0J1 < -3.0))
+                    m_cat1 = m_cat1 & edge_bin_mask(DPhiJ0J1, edges_DPhiJ0J1, b, DPHIJ0J1_COLUMN) & (nj > 1) & (MassJ0J1 > 450) & ((EtaJ0J1 > 3.0) | (EtaJ0J1 < -3.0))
+                    m_cat2 = m_cat2 & edge_bin_mask(DPhiJ0J1, edges_DPhiJ0J1, b, DPHIJ0J1_COLUMN) & (nj > 1) & (MassJ0J1 > 450) & ((EtaJ0J1 > 3.0) | (EtaJ0J1 < -3.0))
+
+                # if b == 0:
+                #     # underflow bin
+                #     m_cat0 = m_cat0 & ((nj < 2)) 
+                #     m_cat1 = m_cat1 & ((nj < 2)) 
+                #     m_cat2 = m_cat2 & ((nj < 2)) 
+                # else: 
+                #     # any other bin (apply NO VBF cuts)
+                #     m_cat0 = m_cat0 & edge_bin_mask(DPhiJ0J1, edges_DPhiJ0J1, b, DPHIJ0J1_COLUMN) & (nj > 1)
+                #     m_cat1 = m_cat1 & edge_bin_mask(DPhiJ0J1, edges_DPhiJ0J1, b, DPHIJ0J1_COLUMN) & (nj > 1)
+                #     m_cat2 = m_cat2 & edge_bin_mask(DPhiJ0J1, edges_DPhiJ0J1, b, DPHIJ0J1_COLUMN) & (nj > 1)
+                replica_counts_DPhiJ0J1_cat0[b] += weight_matrix[m_cat0].sum(axis=0)
+                replica_counts_DPhiJ0J1_cat1[b] += weight_matrix[m_cat1].sum(axis=0)
+                replica_counts_DPhiJ0J1_cat2[b] += weight_matrix[m_cat2].sum(axis=0)
 
 
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -344,6 +396,9 @@ def main() -> None:
         ptj0_cat0_path = parent / f"{stem}_ptj0_cat0_{year}.txt"
         ptj0_cat1_path = parent / f"{stem}_ptj0_cat1_{year}.txt"
         ptj0_cat2_path = parent / f"{stem}_ptj0_cat2_{year}.txt"
+        DPhiJ0J1_cat0_path = parent / f"{stem}_DPhiJ0J1_cat0_{year}.txt"
+        DPhiJ0J1_cat1_path = parent / f"{stem}_DPhiJ0J1_cat1_{year}.txt"
+        DPhiJ0J1_cat2_path = parent / f"{stem}_DPhiJ0J1_cat2_{year}.txt"
         write_binned_counts_txt(
             pth_cat0_path,
             "# PTH bins (column pt); sum of Poisson weights per bin per replica",
@@ -416,6 +471,24 @@ def main() -> None:
             edges_ptj0,
             replica_counts_ptj0_cat2,
         )
+        write_binned_counts_txt(
+            DPhiJ0J1_cat0_path,
+            "# DPhiJ0J1 bins (column DPhiJ0J1); sum of Poisson weights per bin per replica",
+            edges_DPhiJ0J1,
+            replica_counts_DPhiJ0J1_cat0,
+        )
+        write_binned_counts_txt(
+            DPhiJ0J1_cat1_path,
+            "# DPhiJ0J1 bins (column DPhiJ0J1); sum of Poisson weights per bin per replica",
+            edges_DPhiJ0J1,
+            replica_counts_DPhiJ0J1_cat1,
+        )
+        write_binned_counts_txt(
+            DPhiJ0J1_cat2_path,
+            "# DPhiJ0J1 bins (column DPhiJ0J1); sum of Poisson weights per bin per replica",
+            edges_DPhiJ0J1,
+            replica_counts_DPhiJ0J1_cat2,
+        )
 
         print(f"PTH-cat0-binned output : {pth_cat0_path}")
         print(f"PTH-cat1-binned output : {pth_cat1_path}")
@@ -429,6 +502,9 @@ def main() -> None:
         print(f"PTJ0-cat0-binned output : {ptj0_cat0_path}")
         print(f"PTJ0-cat1-binned output : {ptj0_cat1_path}")
         print(f"PTJ0-cat2-binned output : {ptj0_cat2_path}")
+        print(f"DPhiJ0J1-cat0-binned output : {DPhiJ0J1_cat0_path}")
+        print(f"DPhiJ0J1-cat1-binned output : {DPhiJ0J1_cat1_path}")
+        print(f"DPhiJ0J1-cat2-binned output : {DPhiJ0J1_cat2_path}")
 
 
 if __name__ == "__main__":
