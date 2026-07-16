@@ -1,0 +1,12 @@
+python3 run.py --nsig 200.0 --nbkg 100000.0 --plot-toys 5000 --plot-boot 5000
+python3 run.py --nsig 300.0 --nbkg 100000.0 --plot-toys 5000 --plot-boot 5000
+python3 run.py --nsig 400.0 --nbkg 100000.0 --plot-toys 5000 --plot-boot 5000 
+python3 run.py --nsig 500.0 --nbkg 100000.0 --plot-toys 5000 --plot-boot 5000 
+python3 run.py --nsig 750.0 --nbkg 100000.0 --plot-toys 5000 --plot-boot 5000 
+python3 run.py --nsig 1000.0 --nbkg 100000.0 --plot-toys 5000 --plot-boot 5000 
+python3 run.py --nsig 2500.0 --nbkg 100000.0 --plot-toys 5000 --plot-boot 5000 
+python3 run.py --nsig 5000.0 --nbkg 100000.0 --plot-toys 5000 --plot-boot 5000 
+python3 run.py --nsig 7500.0 --nbkg 100000.0 --plot-toys 5000 --plot-boot 5000 
+python3 run.py --nsig 10000.0 --nbkg 100000.0 --plot-toys 5000 --plot-boot 5000 
+python3 run.py --nsig 25000.0 --nbkg 100000.0 --plot-toys 5000 --plot-boot 5000 
+python3 run.py --nsig 50000.0 --nbkg 100000.0 --plot-toys 5000 --plot-boot 5000  
