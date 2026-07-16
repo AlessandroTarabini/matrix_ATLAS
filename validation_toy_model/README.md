@@ -1,0 +1,1 @@
+These are the scripts for a simple toy model to validate the analytical approach (=counting events in the sidebands) for estimating the statistical correlations.
